@@ -1,6 +1,6 @@
 ---
 title: Jira Env Simulation
-emoji: ticket
+emoji: 🎫
 colorFrom: blue
 colorTo: green
 sdk: docker
