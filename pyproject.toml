@@ -1,0 +1,12 @@
+[project]
+name = "jira-env-simulation"
+version = "0.1.0"
+description = "A simplified Jira-like OpenEnv environment for ticket resolution"
+authors = [{ name = "Chirag" }]
+requires-python = ">=3.10"
+dependencies = [
+    "openenv>=0.2.0",
+]
+
+[project.scripts]
+server = "server.app:main"

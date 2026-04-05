@@ -1,0 +1,13 @@
+name: jira-env
+description: A simplified Jira-like ticket management environment for evaluating AI agents on task prioritization and resolution.
+entry_point: server:app
+
+tasks:
+  - name: easy
+    description: Resolve a single high-priority ticket
+
+  - name: medium
+    description: Resolve multiple tickets with mixed priorities
+
+  - name: hard
+    description: Resolve tickets while optimizing priority and efficiency
