@@ -77,14 +77,23 @@ The reward function is **dense and structured**:
 - Correct assignment  
 - Resolving tickets  
 - Handling high-priority tickets  
+- Fast resolution within SLA windows
 
 ### ❌ Negative signals
 - Invalid actions  
 - Resolving without assignment  
 - Inefficient behavior  
 - Time penalties per step  
+- Delayed resolution beyond ticket SLA  
+- Unnecessary priority changes
 
 👉 This ensures agents are rewarded for **both correctness and efficiency**
+
+### Reward Design Notes
+
+- High-priority tickets are expected to be resolved within 3 steps, medium within 5, and low within 7. Missing those SLAs adds a small penalty.  
+- Resolving within SLA gives a small efficiency bonus, which makes early correct handling more valuable than late cleanup.  
+- Hard-task scoring now strongly rewards resolving urgent tickets before lower-priority work and penalizes inefficient action sequences.
 
 ---
 

@@ -60,13 +60,8 @@ def grade_hard_task(env: JiraEnv, resolved_order: list[int]) -> float:
             priority_score = 0.2
 
     efficiency_score = compute_efficiency_score(env)
-
-    score = (
-        0.5 * completion_score
-        + 0.3 * priority_score
-        + 0.2 * efficiency_score
-    )
-    return clamp_score(score)
+    final_score = completion_score * priority_score * efficiency_score
+    return clamp_score(final_score)
 
 
 def _resolve_ticket(env: JiraEnv, ticket_id: int, user: str, resolved_order: list[int] | None = None) -> None:

@@ -8,6 +8,11 @@ class JiraEnv:
         self.max_steps = max_steps
         self.tickets: list[Ticket] = []
         self.current_step = 0
+        self.sla_thresholds = {
+            "high": 3,
+            "medium": 5,
+            "low": 7,
+        }
 
     def reset(self) -> StepResult:
         self.current_step = 0
@@ -93,6 +98,11 @@ class JiraEnv:
                 else:
                     reward += 0.4
 
+                if self._resolved_within_sla(ticket):
+                    reward += 0.1
+                else:
+                    reward += -0.3
+
         elif action.action_type == "change_priority":
             if action.priority is None:
                 reward += -1.0
@@ -100,7 +110,7 @@ class JiraEnv:
                 reward += -0.1
             else:
                 ticket.priority = action.priority
-                reward += 0.1
+                reward += 0.05
 
         elif action.action_type == "add_comment":
             if not action.comment:
@@ -131,3 +141,8 @@ class JiraEnv:
     def _is_done(self) -> bool:
         all_resolved = all(ticket.status == "resolved" for ticket in self.tickets)
         return all_resolved or self.current_step >= self.max_steps
+
+    def _resolved_within_sla(self, ticket: Ticket) -> bool:
+        threshold = self.sla_thresholds.get(ticket.priority, 5)
+        age = self.current_step - ticket.created_step
+        return age <= threshold
