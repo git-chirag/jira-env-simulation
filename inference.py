@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 from openai import OpenAI
 
@@ -8,9 +9,9 @@ from env import JiraEnv
 from models import Action, Ticket
 
 
-DEFAULT_API_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_MODEL_NAME = "gpt-4o-mini"
-DEFAULT_HF_TOKEN = "hf_demo_token"
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+HF_TOKEN = os.getenv("HF_TOKEN")
 TASK_NAME = "baseline"
 ENV_NAME = "jira-env"
 MAX_STEPS = 12
@@ -42,6 +43,27 @@ def format_action(action: Action) -> str:
     if action.action_type == "change_priority":
         return f"change_priority(ticket_id={action.ticket_id},priority={action.priority})"
     return action.action_type
+
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
+    rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
 
 
 def choose_action(
@@ -95,23 +117,14 @@ def compute_max_possible_reward(tickets: list[Ticket]) -> float:
 
 
 def main() -> None:
-    api_base_url = os.getenv("API_BASE_URL", DEFAULT_API_BASE_URL)
-    model_name = os.getenv("MODEL_NAME", DEFAULT_MODEL_NAME)
-    hf_token = os.getenv("HF_TOKEN", DEFAULT_HF_TOKEN)
-
-    # The client is initialized for future model-backed inference, even though
-    # this baseline uses deterministic rule-based actions only.
-    _client = OpenAI(
-        base_url=api_base_url,
-        api_key=hf_token,
-    )
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     env = JiraEnv()
     reset_result = env.reset()
     env.max_steps = MAX_STEPS
     max_possible_reward = compute_max_possible_reward(reset_result.observation.tickets)
 
-    print(f"[START] task={TASK_NAME} env={ENV_NAME} model={model_name}")
+    log_start(task=TASK_NAME, env=ENV_NAME, model=MODEL_NAME)
 
     rewards: list[float] = []
     steps_taken = 0
@@ -121,54 +134,44 @@ def main() -> None:
     reprioritized_tickets: set[int] = set()
     comment_added = False
 
-    for step_number in range(1, MAX_STEPS + 1):
-        action = choose_action(
-            env.state().tickets,
-            attempted_resolve_unassigned,
-            reprioritized_tickets,
-            comment_added,
-        )
-        if action is None:
-            break
+    try:
+        _ = client
+        for step_number in range(1, MAX_STEPS + 1):
+            action = choose_action(
+                env.state().tickets,
+                attempted_resolve_unassigned,
+                reprioritized_tickets,
+                comment_added,
+            )
+            if action is None:
+                break
 
-        if action.action_type == "add_comment":
-            comment_added = True
+            if action.action_type == "add_comment":
+                comment_added = True
 
-        error = "null"
-        try:
+            error = None
             result = env.step(action)
             reward = result.reward
             done = result.done
-        except Exception as exc:
-            reward = 0.0
-            done = False
-            error = str(exc)
-            print(
-                f"[STEP] step={step_number} action={format_action(action)} "
-                f"reward={reward:.2f} done={format_bool(done)} error={error}"
-            )
+
+            rewards.append(reward)
             steps_taken = step_number
-            break
+            log_step(
+                step=step_number,
+                action=format_action(action),
+                reward=reward,
+                done=done,
+                error=error,
+            )
 
-        rewards.append(reward)
-        steps_taken = step_number
-        print(
-            f"[STEP] step={step_number} action={format_action(action)} "
-            f"reward={reward:.2f} done={format_bool(done)} error={error}"
-        )
+            if done:
+                break
 
-        if done:
-            break
-
-    total_reward = sum(rewards)
-    score = clamp_score(total_reward / max_possible_reward)
-    success = score > 0.5
-    rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
-
-    print(
-        f"[END] success={format_bool(success)} steps={steps_taken} "
-        f"score={score:.2f} rewards={rewards_str}"
-    )
+        total_reward = sum(rewards)
+        score = clamp_score(total_reward / max_possible_reward)
+        success = score > 0.5
+    finally:
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
