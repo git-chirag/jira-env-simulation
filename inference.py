@@ -8,10 +8,9 @@ from openai import OpenAI
 from env import JiraEnv
 from models import Action, Ticket
 
-
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN = os.getenv("HF_TOKEN")
+API_BASE_URL = os.environ["API_BASE_URL"]
+API_KEY = os.environ["API_KEY"]
+MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 TASK_NAME = "baseline"
 ENV_NAME = "jira-env"
 MAX_STEPS = 12
@@ -23,6 +22,11 @@ RESOLVE_REWARD_BY_PRIORITY = {
     "medium": 0.7,
     "low": 0.4,
 }
+
+client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=API_KEY,
+)
 
 
 def clamp_score(value: float) -> float:
@@ -117,8 +121,6 @@ def compute_max_possible_reward(tickets: list[Ticket]) -> float:
 
 
 def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-
     env = JiraEnv()
     reset_result = env.reset()
     env.max_steps = MAX_STEPS
@@ -135,10 +137,27 @@ def main() -> None:
     comment_added = False
 
     try:
-        _ = client
         for step_number in range(1, MAX_STEPS + 1):
+            observation = env.state()
+            try:
+                response = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[
+                        {"role": "system", "content": "You are an assistant helping decide actions."},
+                        {
+                            "role": "user",
+                            "content": f"Given this state: {observation}, suggest next action.",
+                        },
+                    ],
+                    max_tokens=50,
+                )
+                llm_output = response.choices[0].message.content
+            except Exception:
+                llm_output = None
+
+            _ = llm_output
             action = choose_action(
-                env.state().tickets,
+                observation.tickets,
                 attempted_resolve_unassigned,
                 reprioritized_tickets,
                 comment_added,
