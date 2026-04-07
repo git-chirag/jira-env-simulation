@@ -1,13 +1,21 @@
+spec_version: 1
 name: jira-env
 description: A simplified Jira-like ticket management environment for evaluating AI agents on task prioritization and resolution.
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
 entry_point: server:app
 
 tasks:
   - name: easy
     description: Resolve a single high-priority ticket
+    grader: graders:grade_easy_task
 
   - name: medium
     description: Resolve multiple tickets with mixed priorities
+    grader: graders:grade_medium_task
 
   - name: hard
     description: Resolve tickets while optimizing priority and efficiency
+    grader: graders:grade_hard_task
