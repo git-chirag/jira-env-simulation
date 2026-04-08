@@ -1,19 +1,13 @@
-version: "1.0.0"
-author: Chirag
-spec_version: 1
 name: jira-env
 description: A simplified Jira-like ticket management environment for evaluating AI agents on task prioritization and resolution.
-type: space
-runtime: fastapi
-app: server.app:app
-port: 7860
-entry_point: server:app
+version: "1.0.0"
+author: Chirag
 
 observation_space:
   type: text
   description: >
-    Natural language or structured ticket-management state containing
-    ticket priority, status, assignment, comments, and current step.
+    Natural language Jira simulation report describing ticket urgency,
+    assignment status, workflow discipline, and the best next move.
 
 action_space:
   type: discrete
@@ -24,39 +18,34 @@ action_space:
     - change_priority
     - add_comment
   description: >
-    Structured ticket-management action for the simulated Jira environment.
+    Jira workflow action chosen for the current synthetic scenario step.
 
 endpoints:
-  - /
-  - /health
-  - /reset
-  - /step
-  - /state
-  - /tasks
-  - /grader
-  - /schema
+  health: /
+  reset: /reset
+  step: /step
+  state: /state
 
 tasks:
   - id: easy
-    difficulty: easy
-    description: Resolve a single high-priority ticket by assigning it and then resolving it.
-    max_steps: 10
-    score_range: [0.0, 1.0]
-    grader: graders.easy_grader:EasyGrader
+    description: Assign and resolve a single high-priority ticket correctly.
+    steps: 2
+    ideal_action: assign_ticket
 
   - id: medium
-    difficulty: medium
-    description: Resolve multiple tickets with mixed priorities while avoiding unnecessary actions.
-    max_steps: 15
-    score_range: [0.0, 1.0]
-    grader: graders.medium_grader:MediumGrader
+    description: Handle multiple tickets with mixed priorities efficiently.
+    steps: 3
+    ideal_action: assign_ticket
 
   - id: hard
-    difficulty: hard
-    description: Resolve tickets while optimizing priority and efficiency.
-    max_steps: 20
-    score_range: [0.0, 1.0]
-    grader: graders.hard_grader:HardGrader
+    description: Prioritize urgent tickets first and avoid workflow mistakes.
+    steps: 3
+    ideal_action: assign_ticket
+
+  - id: assignment_guard
+    description: Avoid resolving a ticket before assignment and preserve workflow discipline.
+    steps: 2
+    ideal_action: assign_ticket
 
 constraints:
   max_runtime_seconds: 1200

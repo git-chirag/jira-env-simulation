@@ -4,6 +4,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+try:
+    from openenv.core.env_server.types import Action as OpenEnvAction
+    from openenv.core.env_server.types import Observation as OpenEnvObservation
+    from openenv.core.env_server.types import State as OpenEnvState
+except Exception:  # pragma: no cover
+    OpenEnvAction = BaseModel
+    OpenEnvObservation = BaseModel
+    OpenEnvState = BaseModel
+
 
 ActionType = Literal[
     "assign_ticket",
@@ -52,3 +61,20 @@ class TaskInfo(BaseModel):
     difficulty: str
     description: str
     action_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class JiraTaskAction(OpenEnvAction):
+    action: str
+
+
+class JiraTaskObservation(OpenEnvObservation):
+    text: str
+    task_id: str
+
+
+class JiraTaskState(OpenEnvState):
+    task_id: str
+    step: int
+    max_steps: int
+    history: list[str]
+    done: bool
