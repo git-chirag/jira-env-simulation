@@ -9,10 +9,7 @@ entry_point: server:app
 
 tasks:
   - name: easy
-    grader: graders:grade_easy_task
 
   - name: medium
-    grader: graders:grade_medium_task
 
   - name: hard
-    grader: graders:grade_hard_task

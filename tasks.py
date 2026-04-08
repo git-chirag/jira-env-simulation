@@ -23,48 +23,6 @@ def compute_efficiency_score(env: JiraEnv) -> float:
     return clamp_score(1.0 - (env.current_step / env.max_steps))
 
 
-def grade_easy_task(env: JiraEnv) -> float:
-    if len(env.tickets) != 1:
-        return 0.0
-    return 1.0 if env.tickets[0].status == "resolved" else 0.0
-
-
-def grade_medium_task(env: JiraEnv) -> float:
-    total_tickets = len(env.tickets)
-    if total_tickets == 0:
-        return 0.0
-    completion_score = count_resolved_tickets(env) / total_tickets
-    efficiency_score = compute_efficiency_score(env)
-    return clamp_score(completion_score * efficiency_score)
-
-
-def grade_hard_task(env: JiraEnv) -> float:
-    total_tickets = len(env.tickets)
-    if total_tickets == 0:
-        return 0.0
-
-    completion_score = count_resolved_tickets(env) / total_tickets
-    resolved_order = getattr(env, "resolved_order", [])
-
-    priorities = get_priority_order(env, resolved_order)
-    high_ticket_count = sum(1 for ticket in env.tickets if ticket.priority == "high")
-    if high_ticket_count == 0:
-        priority_score = 1.0
-    else:
-        high_indices = [index for index, priority in enumerate(priorities) if priority == "high"]
-        lower_indices = [index for index, priority in enumerate(priorities) if priority != "high"]
-        if not lower_indices:
-            priority_score = 1.0
-        elif high_indices and max(high_indices) < min(lower_indices):
-            priority_score = 1.0
-        else:
-            priority_score = 0.2
-
-    efficiency_score = compute_efficiency_score(env)
-    final_score = completion_score * priority_score * efficiency_score
-    return clamp_score(final_score)
-
-
 def _resolve_ticket(env: JiraEnv, ticket_id: int, user: str) -> None:
     env.step(Action(action_type="assign_ticket", ticket_id=ticket_id, user=user))
     result = env.step(Action(action_type="resolve_ticket", ticket_id=ticket_id))
@@ -90,7 +48,10 @@ def run_easy_task(env: JiraEnv) -> float:
     ]
 
     _resolve_ticket(env, ticket_id=1, user="alice")
-    return grade_easy_task(env)
+    if len(env.tickets) != 1:
+        return 0.0
+    score = 1.0 if env.tickets[0].status == "resolved" else 0.0
+    return float(clamp_score(score))
 
 
 def run_medium_task(env: JiraEnv) -> float:
@@ -124,7 +85,13 @@ def run_medium_task(env: JiraEnv) -> float:
     env.step(Action(action_type="add_comment", ticket_id=2, comment="Need follow-up"))
     _resolve_ticket(env, ticket_id=2, user="bob")
     _resolve_ticket(env, ticket_id=3, user="carol")
-    return grade_medium_task(env)
+    total_tickets = len(env.tickets)
+    if total_tickets == 0:
+        return 0.0
+    completion_score = count_resolved_tickets(env) / total_tickets
+    efficiency_score = compute_efficiency_score(env)
+    score = completion_score * efficiency_score
+    return float(clamp_score(score))
 
 
 def run_hard_task(env: JiraEnv) -> float:
@@ -182,7 +149,29 @@ def run_hard_task(env: JiraEnv) -> float:
         if env.state().current_step >= env.max_steps:
             break
 
-    return grade_hard_task(env)
+    total_tickets = len(env.tickets)
+    if total_tickets == 0:
+        return 0.0
+
+    completion_score = count_resolved_tickets(env) / total_tickets
+    resolved_order = getattr(env, "resolved_order", [])
+    priorities = get_priority_order(env, resolved_order)
+    high_ticket_count = sum(1 for ticket in env.tickets if ticket.priority == "high")
+    if high_ticket_count == 0:
+        priority_score = 1.0
+    else:
+        high_indices = [index for index, priority in enumerate(priorities) if priority == "high"]
+        lower_indices = [index for index, priority in enumerate(priorities) if priority != "high"]
+        if not lower_indices:
+            priority_score = 1.0
+        elif high_indices and max(high_indices) < min(lower_indices):
+            priority_score = 1.0
+        else:
+            priority_score = 0.2
+
+    efficiency_score = compute_efficiency_score(env)
+    score = completion_score * priority_score * efficiency_score
+    return float(clamp_score(score))
 
 
 if __name__ == "__main__":
