@@ -5,45 +5,28 @@ from models import Action, Observation, StepResult, Ticket
 
 class JiraEnv:
     def __init__(self, max_steps: int = 10) -> None:
+        self.default_max_steps = max_steps
         self.max_steps = max_steps
         self.tickets: list[Ticket] = []
         self.current_step = 0
+        self.current_task_id = "medium"
         self.sla_thresholds = {
             "high": 3,
             "medium": 5,
             "low": 7,
         }
 
-    def reset(self) -> StepResult:
+    def reset(self, task_id: str | None = None) -> StepResult:
+        selected_task = (task_id or "medium").strip().lower()
         self.current_step = 0
-        self.tickets = [
-            Ticket(
-                id=1,
-                title="Fix login error",
-                priority="high",
-                status="open",
-                created_step=0,
-            ),
-            Ticket(
-                id=2,
-                title="Update onboarding copy",
-                priority="medium",
-                status="open",
-                created_step=0,
-            ),
-            Ticket(
-                id=3,
-                title="Clean up unused CSS",
-                priority="low",
-                status="open",
-                created_step=0,
-            ),
-        ]
+        self.current_task_id = selected_task if selected_task in {"easy", "medium", "hard"} else "medium"
+        self.max_steps = self._max_steps_for_task(self.current_task_id)
+        self.tickets = self._build_tickets(self.current_task_id)
         return StepResult(
             observation=self.state(),
             reward=0.0,
             done=False,
-            info={},
+            info={"task_id": self.current_task_id},
         )
 
     def state(self) -> Observation:
@@ -61,9 +44,9 @@ class JiraEnv:
             reward += -1.0
             return StepResult(
                 observation=self.state(),
-                reward=reward,
+                reward=self._normalize_reward(reward),
                 done=self._is_done(),
-                info={},
+                info={"task_id": self.current_task_id},
             )
 
         if action.action_type == "assign_ticket":
@@ -122,9 +105,9 @@ class JiraEnv:
         done = self._is_done()
         return StepResult(
             observation=self.state(),
-            reward=reward,
+            reward=self._normalize_reward(reward),
             done=done,
-            info={},
+            info={"task_id": self.current_task_id},
         )
 
     def _get_ticket(self, ticket_id: int) -> Ticket | None:
@@ -138,6 +121,58 @@ class JiraEnv:
             return ticket.model_copy(deep=True)
         return ticket.copy(deep=True)
 
+    def _build_tickets(self, task_id: str) -> list[Ticket]:
+        if task_id == "easy":
+            return [
+                Ticket(
+                    id=1,
+                    title="Fix login error",
+                    priority="high",
+                    status="open",
+                    created_step=0,
+                )
+            ]
+
+        if task_id == "hard":
+            return [
+                Ticket(id=1, title="Payment outage investigation", priority="high", status="open", created_step=0),
+                Ticket(id=2, title="Mobile crash on checkout", priority="high", status="open", created_step=0),
+                Ticket(id=3, title="Update reporting dashboard", priority="medium", status="open", created_step=0),
+                Ticket(id=4, title="Refresh email templates", priority="medium", status="open", created_step=0),
+                Ticket(id=5, title="Remove deprecated styles", priority="low", status="open", created_step=0),
+            ]
+
+        return [
+            Ticket(
+                id=1,
+                title="Fix login error",
+                priority="high",
+                status="open",
+                created_step=0,
+            ),
+            Ticket(
+                id=2,
+                title="Update onboarding copy",
+                priority="medium",
+                status="open",
+                created_step=0,
+            ),
+            Ticket(
+                id=3,
+                title="Clean up unused CSS",
+                priority="low",
+                status="open",
+                created_step=0,
+            ),
+        ]
+
+    def _max_steps_for_task(self, task_id: str) -> int:
+        if task_id == "easy":
+            return 6
+        if task_id == "hard":
+            return max(self.default_max_steps, 20)
+        return max(self.default_max_steps, 10)
+
     def _is_done(self) -> bool:
         all_resolved = all(ticket.status == "resolved" for ticket in self.tickets)
         return all_resolved or self.current_step >= self.max_steps
@@ -146,3 +181,6 @@ class JiraEnv:
         threshold = self.sla_thresholds.get(ticket.priority, 5)
         age = self.current_step - ticket.created_step
         return age <= threshold
+
+    def _normalize_reward(self, reward: float) -> float:
+        return max(0.0, min(1.0, reward))

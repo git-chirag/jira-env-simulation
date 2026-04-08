@@ -17,5 +17,5 @@ server = "server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["jira_env_simulation", "jira_env_simulation.server", "jira_env_simulation.tasks"]
-package-dir = { "jira_env_simulation" = ".", "jira_env_simulation.server" = "server", "jira_env_simulation.tasks" = "tasks" }
+packages = ["jira_env_simulation", "jira_env_simulation.server"]
+package-dir = { "jira_env_simulation" = ".", "jira_env_simulation.server" = "server" }

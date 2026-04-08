@@ -14,8 +14,9 @@ env = JiraEnv()
 
 
 @app.post("/reset")
-def reset() -> dict[str, Any]:
-    result = env.reset()
+def reset(payload: dict[str, Any] | None = Body(default=None)) -> dict[str, Any]:
+    task_id = None if payload is None else payload.get("task_id")
+    result = env.reset(task_id=task_id)
     return result.model_dump()
 
 
