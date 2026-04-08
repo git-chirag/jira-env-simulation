@@ -11,11 +11,14 @@ tasks:
   - id: easy
     description: Resolve a single high-priority ticket
     steps: 10
+    grader: tasks.graders:grade_easy
 
   - id: medium
     description: Resolve multiple tickets with mixed priorities
     steps: 15
+    grader: tasks.graders:grade_medium
 
   - id: hard
     description: Resolve tickets while optimizing priority and efficiency
     steps: 20
+    grader: tasks.graders:grade_hard
