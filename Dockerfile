@@ -21,6 +21,7 @@ RUN if ! command -v uv >/dev/null 2>&1; then \
     fi
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    rm -f uv.lock && \
     if [ -f uv.lock ]; then \
         uv sync --no-install-project --no-editable; \
     else \
