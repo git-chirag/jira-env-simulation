@@ -6,7 +6,7 @@ from typing import Optional
 from openai import OpenAI
 
 from env import JiraEnv
-from models import Action, Ticket
+from local_models import Action, Ticket
 
 API_BASE_URL = os.environ["API_BASE_URL"]
 API_KEY = os.environ["API_KEY"]

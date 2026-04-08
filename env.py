@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from models import Action, Observation, StepResult, Ticket
+from local_models import Action, Observation, StepResult, Ticket
 
 
 class JiraEnv:

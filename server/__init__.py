@@ -1,3 +1,5 @@
-from .app import app, main
+"""Jira environment server components."""
 
-__all__ = ["app", "main"]
+from .jira_environment import JiraTaskEnvironment
+
+__all__ = ["JiraTaskEnvironment"]
