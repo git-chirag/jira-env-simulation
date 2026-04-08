@@ -17,7 +17,7 @@ def _resolve_env(*args, **kwargs) -> JiraEnv:
 def grade(*args, **kwargs) -> float:
     working_env = _resolve_env(*args, **kwargs)
     score = float(run_medium_task(working_env))
-    return round(max(0.001, min(0.999, score)), 4)
+    return round(max(0.01, min(0.99, score)), 2)
 
 
 class MediumGrader:

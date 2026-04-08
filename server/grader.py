@@ -6,7 +6,7 @@ from server.tasks import TASK_REGISTRY
 
 
 def _clamp_score(value: float) -> float:
-    return max(0.01, min(0.99, float(value)))
+    return round(max(0.01, min(0.99, float(value))), 2)
 
 
 def grade(action_dict: dict[str, Any], task_id: str, temperature: float = 0.0, seed: int = 42) -> float:
@@ -21,21 +21,21 @@ def grade(action_dict: dict[str, Any], task_id: str, temperature: float = 0.0, s
 
     if action_type in task.get("ideal_actions", []):
         if task_id == "easy":
-            return 0.95
+            return _clamp_score(0.95)
         if task_id == "medium":
-            return 0.85
-        return 0.75
+            return _clamp_score(0.85)
+        return _clamp_score(0.75)
 
     if action_type == "add_comment":
-        return 0.25 if task_id != "hard" else 0.15
+        return _clamp_score(0.25 if task_id != "hard" else 0.15)
 
     if action_type == "change_priority":
-        return 0.20 if task_id != "hard" else 0.10
+        return _clamp_score(0.20 if task_id != "hard" else 0.10)
 
     if action_type == "update_status":
-        return 0.40
+        return _clamp_score(0.40)
 
-    return 0.05
+    return _clamp_score(0.05)
 
 
 __all__ = ["grade"]
