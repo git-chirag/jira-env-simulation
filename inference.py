@@ -150,6 +150,7 @@ def main() -> None:
                         },
                     ],
                     max_tokens=50,
+                    timeout=5,
                 )
                 llm_output = response.choices[0].message.content
             except Exception:
@@ -191,6 +192,7 @@ def main() -> None:
         success = score > 0.5
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        client.close()
 
 
 if __name__ == "__main__":
