@@ -1,3 +1,5 @@
+version: "1.0.0"
+author: Chirag
 spec_version: 1
 name: jira-env
 description: A simplified Jira-like ticket management environment for evaluating AI agents on task prioritization and resolution.
@@ -6,6 +8,29 @@ runtime: fastapi
 app: server.app:app
 port: 7860
 entry_point: server:app
+
+observation_space:
+  type: text
+  description: >
+    Natural language or structured ticket-management state containing
+    ticket priority, status, assignment, comments, and current step.
+
+action_space:
+  type: discrete
+  actions:
+    - assign_ticket
+    - update_status
+    - resolve_ticket
+    - change_priority
+    - add_comment
+  description: >
+    Structured ticket-management action for the simulated Jira environment.
+
+endpoints:
+  health: /
+  reset: /reset
+  step: /step
+  state: /state
 
 tasks:
   - id: easy
@@ -22,3 +47,13 @@ tasks:
     description: Resolve tickets while optimizing priority and efficiency
     steps: 20
     grader: tasks.graders:grade_hard
+
+scoring:
+  reward_range: [0.0, 1.0]
+  success_threshold: 0.5
+  score_formula: task_specific_score
+
+constraints:
+  max_runtime_seconds: 1200
+  max_memory_gb: 8
+  max_vcpu: 2
