@@ -1,7 +1,7 @@
 TASKS = {
     "easy": {
         "description": "Resolve a single high-priority ticket",
-        "ideal_outcome": "resolve_assigned_high_priority_ticket",
+        "ideal_action": "resolve_ticket",
         "steps": [
             {
                 "observation": (
@@ -16,14 +16,30 @@ TASKS = {
                     "ticket_count": 1,
                     "high_priority_count": 1,
                     "requires_assignment": True,
-                    "ideal_action_sequence": ["assign_ticket", "resolve_ticket"],
+                    "ideal_action": "assign_ticket",
                 },
-            }
+            },
+            {
+                "observation": (
+                    "Jira Scenario Report:\n"
+                    "The urgent ticket is now assigned to an agent.\n"
+                    "Priority: high\n"
+                    "Status: open\n"
+                    "Assigned: yes\n"
+                    "Goal: resolve the urgent ticket."
+                ),
+                "signals": {
+                    "ticket_count": 1,
+                    "high_priority_count": 1,
+                    "requires_assignment": False,
+                    "ideal_action": "resolve_ticket",
+                },
+            },
         ],
     },
     "medium": {
         "description": "Resolve multiple tickets with mixed priorities",
-        "ideal_outcome": "resolve_all_tickets_with_reasonable_efficiency",
+        "ideal_action": "resolve_ticket",
         "steps": [
             {
                 "observation": (
@@ -37,14 +53,28 @@ TASKS = {
                     "high_priority_count": 1,
                     "medium_priority_count": 1,
                     "low_priority_count": 1,
+                    "ideal_action": "resolve_ticket",
                     "expected_completion": 1.0,
                 },
-            }
+            },
+            {
+                "observation": (
+                    "Jira Scenario Report:\n"
+                    "At least one ticket remains unresolved.\n"
+                    "The agent should continue progressing toward full completion."
+                ),
+                "signals": {
+                    "ticket_count": 3,
+                    "high_priority_count": 1,
+                    "ideal_action": "resolve_ticket",
+                    "expected_completion": 1.0,
+                },
+            },
         ],
     },
     "hard": {
         "description": "Resolve tickets while optimizing priority and efficiency",
-        "ideal_outcome": "resolve_all_tickets_with_high_priority_first",
+        "ideal_action": "resolve_ticket",
         "steps": [
             {
                 "observation": (
@@ -59,8 +89,22 @@ TASKS = {
                     "medium_priority_count": 2,
                     "low_priority_count": 1,
                     "priority_order_required": True,
+                    "ideal_action": "resolve_ticket",
                 },
-            }
+            },
+            {
+                "observation": (
+                    "Jira Scenario Report:\n"
+                    "Urgent work should be completed before medium or low priority cleanup.\n"
+                    "Goal: maintain priority discipline and efficiency."
+                ),
+                "signals": {
+                    "ticket_count": 5,
+                    "high_priority_count": 2,
+                    "priority_order_required": True,
+                    "ideal_action": "resolve_ticket",
+                },
+            },
         ],
     },
 }
