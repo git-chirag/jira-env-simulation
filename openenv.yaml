@@ -27,19 +27,34 @@ action_space:
     Structured ticket-management action for the simulated Jira environment.
 
 endpoints:
-  health: /
-  reset: /reset
-  step: /step
-  state: /state
-  tasks: /tasks
-  grader: /grader
+  - /
+  - /reset
+  - /step
+  - /state
+  - /tasks
+  - /grader
 
 tasks:
   - id: easy
+    difficulty: easy
+    description: Resolve a single high-priority ticket by assigning it and then resolving it.
+    max_steps: 10
+    score_range: [0.0, 1.0]
+    grader: graders.easy_grader:EasyGrader
 
   - id: medium
+    difficulty: medium
+    description: Resolve multiple tickets with mixed priorities while avoiding unnecessary actions.
+    max_steps: 15
+    score_range: [0.0, 1.0]
+    grader: graders.medium_grader:MediumGrader
 
   - id: hard
+    difficulty: hard
+    description: Resolve tickets while optimizing priority and efficiency.
+    max_steps: 20
+    score_range: [0.0, 1.0]
+    grader: graders.hard_grader:HardGrader
 
 constraints:
   max_runtime_seconds: 1200

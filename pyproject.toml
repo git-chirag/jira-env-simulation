@@ -15,7 +15,6 @@ dependencies = [
 [project.scripts]
 server = "server.app:main"
 
-[tool.setuptools]
-include-package-data = true
-packages = ["jira_env_simulation", "jira_env_simulation.server"]
-package-dir = { "jira_env_simulation" = ".", "jira_env_simulation.server" = "server" }
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*", "tasks*", "graders*"]

@@ -39,16 +39,17 @@ def state() -> dict[str, Any]:
 
 
 @app.get("/tasks")
-def list_tasks() -> list[TaskInfo]:
-    return [
+def list_tasks() -> dict[str, list[dict[str, Any]]]:
+    tasks = [
         TaskInfo(
             task_id=task_id,
             difficulty=task["difficulty"],
             description=task["description"],
             action_schema=Action.model_json_schema(),
-        )
+        ).model_dump()
         for task_id, task in TASK_REGISTRY.items()
     ]
+    return {"tasks": tasks}
 
 
 @app.post("/grader")
@@ -63,6 +64,21 @@ def grader(task_id: str, action: Action) -> dict[str, Any]:
         "passed": 1 if score > 0.5 else 0,
         "total": 1,
         "metric": "jira_task_alignment",
+    }
+
+
+@app.get("/grader")
+def grader_score(task_id: str = "easy") -> dict[str, Any]:
+    if task_id not in TASK_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unknown task_id: {task_id}")
+
+    local_env = JiraEnv()
+    local_env.reset(task_id=task_id)
+    score = grade({"action_type": "assign_ticket"}, task_id)
+    return {
+        "task_id": task_id,
+        "score": score,
+        "done": True,
     }
 
 
