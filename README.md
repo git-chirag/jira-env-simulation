@@ -155,3 +155,5 @@ The environment is exposed via FastAPI:
 ```bash
 docker build -t jira-env .
 docker run -p 7860:7860 jira-env
+
+<!-- noop: trigger rebuild -->
