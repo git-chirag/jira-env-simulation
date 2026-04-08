@@ -11,3 +11,4 @@ build/
 dist/
 *.egg-info/
 sample_*.txt
+test_hf_api.py
