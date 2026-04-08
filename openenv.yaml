@@ -8,8 +8,14 @@ port: 7860
 entry_point: server:app
 
 tasks:
-  - name: easy
+  - id: easy
+    description: Resolve a single high-priority ticket
+    steps: 10
 
-  - name: medium
+  - id: medium
+    description: Resolve multiple tickets with mixed priorities
+    steps: 15
 
-  - name: hard
+  - id: hard
+    description: Resolve tickets while optimizing priority and efficiency
+    steps: 20
