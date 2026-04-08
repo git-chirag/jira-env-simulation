@@ -6,7 +6,9 @@ from fastapi import Body, FastAPI, HTTPException
 from pydantic import ValidationError
 
 from env import JiraEnv
-from models import Action
+from models import Action, TaskInfo
+from server.grader import grade
+from server.tasks import TASK_REGISTRY
 
 
 app = FastAPI()
@@ -34,6 +36,34 @@ def step(action_data: dict[str, Any] = Body(...)) -> dict[str, Any]:
 @app.get("/state")
 def state() -> dict[str, Any]:
     return env.state().model_dump()
+
+
+@app.get("/tasks")
+def list_tasks() -> list[TaskInfo]:
+    return [
+        TaskInfo(
+            task_id=task_id,
+            difficulty=task["difficulty"],
+            description=task["description"],
+            action_schema=Action.model_json_schema(),
+        )
+        for task_id, task in TASK_REGISTRY.items()
+    ]
+
+
+@app.post("/grader")
+def grader(task_id: str, action: Action) -> dict[str, Any]:
+    if task_id not in TASK_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unknown task_id: {task_id}")
+
+    score = grade(action.model_dump(), task_id)
+    return {
+        "task_id": task_id,
+        "score": score,
+        "passed": 1 if score > 0.5 else 0,
+        "total": 1,
+        "metric": "jira_task_alignment",
+    }
 
 
 def main() -> None:

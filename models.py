@@ -45,3 +45,10 @@ class StepResult(BaseModel):
     reward: float
     done: bool
     info: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskInfo(BaseModel):
+    task_id: str
+    difficulty: str
+    description: str
+    action_schema: dict[str, Any] = Field(default_factory=dict)
