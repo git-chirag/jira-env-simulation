@@ -1,27 +1,18 @@
 from typing import List
 
-from pydantic import BaseModel
-
-try:
-    from openenv.core.env_server.types import Action as OpenEnvAction
-    from openenv.core.env_server.types import Observation as OpenEnvObservation
-    from openenv.core.env_server.types import State as OpenEnvState
-except Exception:  # pragma: no cover
-    OpenEnvAction = BaseModel
-    OpenEnvObservation = BaseModel
-    OpenEnvState = BaseModel
+from openenv.core.env_server.types import Action, Observation, State
 
 
-class JiraTaskAction(OpenEnvAction):
+class JiraTaskAction(Action):
     action: str
 
 
-class JiraTaskObservation(OpenEnvObservation):
+class JiraTaskObservation(Observation):
     text: str
     task_id: str
 
 
-class JiraTaskState(OpenEnvState):
+class JiraTaskState(State):
     task_id: str
     step: int
     max_steps: int

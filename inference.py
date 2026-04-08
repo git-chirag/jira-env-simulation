@@ -1,197 +1,190 @@
-from __future__ import annotations
+#!/usr/bin/env python3
+"""
+inference.py — Jira OpenEnv Agent
+=================================
+Runs an LLM agent through all Jira tasks and emits structured stdout logs.
+
+Required environment variables:
+    API_BASE_URL      LLM API endpoint
+    API_KEY           API key
+    MODEL_NAME        Model identifier
+    LOCAL_IMAGE_NAME  (optional) Docker image to launch as env server
+
+Stdout format (must not deviate):
+    [START] task=<task> env=<benchmark> model=<model>
+    [STEP]  step=<n> action=<action> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...>
+"""
 
 import os
-from typing import Optional
+import textwrap
+from typing import List, Optional
 
 from openai import OpenAI
 
-from env import JiraEnv
-from local_models import Action, Ticket
+from client import JiraClient
+from models import JiraTaskAction
+from tasks.definitions import TASK_NAMES, TASKS
 
+
+IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 API_BASE_URL = os.environ["API_BASE_URL"]
 API_KEY = os.environ["API_KEY"]
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-TASK_NAME = "baseline"
-ENV_NAME = "jira-env"
-MAX_STEPS = 12
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+BENCHMARK = "jira-env"
+SUCCESS_SCORE_THRESHOLD = 0.5
+TEMPERATURE = 0.2
+MAX_TOKENS = 128
 
-ASSIGN_REWARD = 0.2
-TIME_PENALTY = 0.05
-RESOLVE_REWARD_BY_PRIORITY = {
-    "high": 1.0,
-    "medium": 0.7,
-    "low": 0.4,
-}
+SYSTEM_PROMPT = textwrap.dedent(
+    """
+    You are a disciplined Jira workflow assistant.
+    You will receive Jira ticket-management observations with assignment,
+    status, and priority cues.
 
-client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=API_KEY,
-)
+    Based on the observation, choose exactly one of these actions:
+      ASSIGN_TICKET
+      RESOLVE_TICKET
+      UPDATE_STATUS
+      CHANGE_PRIORITY
+      ADD_COMMENT
 
-
-def clamp_score(value: float) -> float:
-    return max(0.0, min(1.0, value))
-
-
-def format_bool(value: bool) -> str:
-    return "true" if value else "false"
-
-
-def format_action(action: Action) -> str:
-    if action.action_type == "assign_ticket":
-        return f"assign_ticket(ticket_id={action.ticket_id},user={action.user})"
-    if action.action_type == "resolve_ticket":
-        return f"resolve_ticket(ticket_id={action.ticket_id})"
-    if action.action_type == "add_comment":
-        return f"add_comment(ticket_id={action.ticket_id},comment={action.comment})"
-    if action.action_type == "change_priority":
-        return f"change_priority(ticket_id={action.ticket_id},priority={action.priority})"
-    return action.action_type
+    Reply with EXACTLY ONE ACTION NAME.
+    No explanation. No punctuation. No extra text.
+    """
+).strip()
 
 
-def log_start(task: str, env: str, model: str) -> None:
+def log_start(task: str, env: str, model: str):
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]):
     error_val = error if error else "null"
-    done_val = str(done).lower()
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
-        flush=True,
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error_val}", flush=True)
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]):
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+
+def choose_rule_based_action(observation: str) -> str:
+    text = observation.lower()
+
+    if "unassigned" in text or "none are assigned yet" in text or "no ticket is assigned yet" in text:
+        return "assign_ticket"
+    if "ready to resolve" in text or "ready to close" in text or "can be resolved safely" in text:
+        return "resolve_ticket"
+    if "complete the work cleanly" in text:
+        return "resolve_ticket"
+    if "best next move starts progress" in text or "best move starts execution" in text:
+        return "assign_ticket"
+
+    return "assign_ticket"
+
+
+def get_model_action(client: OpenAI, observation: str, history: List[str]) -> str:
+    history_block = "\n".join(history[-3:]) if history else "None"
+    user_prompt = (
+        f"Current Jira observation:\n{observation}\n\n"
+        f"Previous decisions this episode:\n{history_block}\n\n"
+        f"Your decision:"
     )
 
-
-def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
-    rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
-        flush=True,
-    )
-
-
-def choose_action(
-    tickets: list[Ticket],
-    attempted_resolve_unassigned: set[int],
-    reprioritized_tickets: set[int],
-    comment_added: bool,
-) -> Action | None:
-    for ticket in tickets:
-        if ticket.status == "resolved":
-            continue
-        if not ticket.assigned_to:
-            if ticket.id not in attempted_resolve_unassigned:
-                attempted_resolve_unassigned.add(ticket.id)
-                return Action(
-                    action_type="resolve_ticket",
-                    ticket_id=ticket.id,
-                )
-            return Action(
-                action_type="assign_ticket",
-                ticket_id=ticket.id,
-                user="alice",
-            )
-        if not comment_added:
-            return Action(
-                action_type="add_comment",
-                ticket_id=ticket.id,
-                comment="checking issue",
-            )
-        if ticket.priority != "high" and ticket.id not in reprioritized_tickets:
-            reprioritized_tickets.add(ticket.id)
-            return Action(
-                action_type="change_priority",
-                ticket_id=ticket.id,
-                priority="high",
-            )
-        return Action(
-            action_type="resolve_ticket",
-            ticket_id=ticket.id,
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            stream=False,
         )
-    return None
+
+        text = (completion.choices[0].message.content or "").strip().upper()
+        for action in (
+            "ASSIGN_TICKET",
+            "RESOLVE_TICKET",
+            "UPDATE_STATUS",
+            "CHANGE_PRIORITY",
+            "ADD_COMMENT",
+        ):
+            if action in text:
+                return action.lower()
+    except Exception:
+        pass
+
+    return choose_rule_based_action(observation)
 
 
-def compute_max_possible_reward(tickets: list[Ticket]) -> float:
-    total = 0.0
-    for ticket in tickets:
-        total += ASSIGN_REWARD
-        total += RESOLVE_REWARD_BY_PRIORITY[ticket.priority]
-        total -= 2 * TIME_PENALTY
-    return max(total, 0.01)
+def run_task(client: OpenAI, task_name: str) -> None:
+    if IMAGE_NAME:
+        env_instance = JiraClient.from_docker_image(IMAGE_NAME, task=task_name)
+    else:
+        env_instance = JiraClient(base_url=ENV_BASE_URL)
+
+    rewards: List[float] = []
+    history: List[str] = []
+    steps_taken = 0
+    score = 0.01
+    success = False
+
+    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+
+    try:
+        with env_instance.sync() as env:
+            if IMAGE_NAME:
+                result = env.reset()
+            else:
+                result = env.reset(task_id=task_name)
+
+            max_steps = len(TASKS[task_name]["steps"])
+
+            for step in range(1, max_steps + 1):
+                if result.done:
+                    break
+
+                observation_text = result.observation.text
+                action_str = get_model_action(client, observation_text, history)
+                error: Optional[str] = None
+
+                try:
+                    result = env.step(JiraTaskAction(action=action_str))
+                    reward = float(result.reward or 0.0)
+                    done = bool(result.done)
+                except Exception as exc:
+                    error = str(exc)
+                    reward = 0.01
+                    done = True
+
+                rewards.append(reward)
+                steps_taken = step
+                log_step(step=step, action=action_str, reward=reward, done=done, error=error)
+                history.append(f"Step {step}: {action_str} -> reward {reward:.2f}")
+
+                if done:
+                    break
+
+        if rewards:
+            score = sum(rewards) / len(rewards)
+            score = max(0.01, min(score, 0.99))
+        success = score >= SUCCESS_SCORE_THRESHOLD
+    except Exception:
+        pass
+    finally:
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 def main() -> None:
-    env = JiraEnv()
-    reset_result = env.reset()
-    env.max_steps = MAX_STEPS
-    max_possible_reward = compute_max_possible_reward(reset_result.observation.tickets)
-
-    log_start(task=TASK_NAME, env=ENV_NAME, model=MODEL_NAME)
-
-    rewards: list[float] = []
-    steps_taken = 0
-    success = False
-    score = 0.0
-    attempted_resolve_unassigned: set[int] = set()
-    reprioritized_tickets: set[int] = set()
-    comment_added = False
-
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     try:
-        for step_number in range(1, MAX_STEPS + 1):
-            observation = env.state()
-            try:
-                response = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": "You are an assistant helping decide actions."},
-                        {
-                            "role": "user",
-                            "content": f"Given this state: {observation}, suggest next action.",
-                        },
-                    ],
-                    max_tokens=50,
-                    timeout=5,
-                )
-                llm_output = response.choices[0].message.content
-            except Exception:
-                llm_output = None
-
-            _ = llm_output
-            action = choose_action(
-                observation.tickets,
-                attempted_resolve_unassigned,
-                reprioritized_tickets,
-                comment_added,
-            )
-            if action is None:
-                break
-
-            if action.action_type == "add_comment":
-                comment_added = True
-
-            error = None
-            result = env.step(action)
-            reward = result.reward
-            done = result.done
-
-            rewards.append(reward)
-            steps_taken = step_number
-            log_step(
-                step=step_number,
-                action=format_action(action),
-                reward=reward,
-                done=done,
-                error=error,
-            )
-
-            if done:
-                break
-
-        total_reward = sum(rewards)
-        score = clamp_score(total_reward / max_possible_reward)
-        success = score > 0.5
+        for task_name in TASK_NAMES:
+            run_task(client, task_name)
     finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
         client.close()
 
 

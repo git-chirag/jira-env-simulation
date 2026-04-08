@@ -6,6 +6,9 @@ colorTo: green
 sdk: docker
 app_port: 7860
 pinned: false
+base_path: /web
+tags:
+  - openenv
 ---
 
 # 🎫 Jira Env Simulation

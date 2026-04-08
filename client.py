@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Any, Dict
+from typing import Dict, Any
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
@@ -15,13 +13,20 @@ class JiraClient(EnvClient[JiraTaskAction, JiraTaskObservation, JiraTaskState]):
     """
     Client for the Jira task environment.
 
-    This mirrors the OpenEnv client pattern used by the reference project.
+    This client maintains a persistent WebSocket connection to the environment server,
+    enabling efficient multi-step interactions with lower latency.
     """
 
     def _step_payload(self, action: JiraTaskAction) -> Dict[str, Any]:
+        """
+        Convert JiraTaskAction to JSON payload for step message.
+        """
         return action.model_dump()
 
     def _parse_result(self, payload: Dict[str, Any]) -> StepResult[JiraTaskObservation]:
+        """
+        Parse server response into StepResult[JiraTaskObservation].
+        """
         obs_data = payload.get("observation", {})
         observation = JiraTaskObservation(
             text=obs_data.get("text", payload.get("text", "")),
@@ -38,6 +43,9 @@ class JiraClient(EnvClient[JiraTaskAction, JiraTaskObservation, JiraTaskState]):
         )
 
     def _parse_state(self, payload: Dict[str, Any]) -> JiraTaskState:
+        """
+        Parse server response into State object.
+        """
         return JiraTaskState(
             task_id=payload.get("task_id", ""),
             step=payload.get("step", 0),

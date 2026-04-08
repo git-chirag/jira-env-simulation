@@ -1,8 +1,25 @@
 """
-FastAPI application for the JiraEnv environment.
+FastAPI application for the Jira environment.
 
 This module creates an HTTP server that exposes the JiraTaskEnvironment
 over HTTP and WebSocket endpoints, compatible with EnvClient.
+
+Endpoints:
+    - POST /reset: Reset the environment
+    - POST /step: Execute an action
+    - GET /state: Get current environment state
+    - GET /schema: Get action/observation schemas
+    - WS /ws: WebSocket endpoint for persistent sessions
+
+Usage:
+    # Development (with auto-reload):
+    uvicorn server.app:app --reload --host 0.0.0.0 --port 7860
+
+    # Production:
+    uvicorn server.app:app --host 0.0.0.0 --port 7860 --workers 4
+
+    # Or run directly:
+    python -m server.app
 """
 
 try:
@@ -32,6 +49,14 @@ app = create_app(
 def main():
     """
     Entry point for direct execution via uv run or python -m.
+
+    This function enables running the server without Docker:
+        uv run --project . server
+        python -m jira_env_simulation.server.app
+
+    For production deployments, consider using uvicorn directly with
+    multiple workers:
+        uvicorn jira_env_simulation.server.app:app --workers 4
     """
     import argparse
     import uvicorn
