@@ -24,7 +24,7 @@ from openai import OpenAI
 
 from client import JiraClient
 from models import JiraTaskAction
-from tasks.definitions import TASK_NAMES, TASKS
+from tasks.definitions import TASKS
 
 
 IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
@@ -154,7 +154,7 @@ def run_task(client: OpenAI, task_name: str) -> None:
 
                 try:
                     result = env.step(JiraTaskAction(action=action_str))
-                    reward = float(result.reward or 0.0)
+                    reward = float(result.reward) if result.reward is not None else 0.01
                     done = bool(result.done)
                 except Exception as exc:
                     error = str(exc)
@@ -182,7 +182,7 @@ def run_task(client: OpenAI, task_name: str) -> None:
 def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     try:
-        for task_name in TASK_NAMES:
+        for task_name in ["easy", "medium", "hard"]:
             run_task(client, task_name)
     finally:
         client.close()

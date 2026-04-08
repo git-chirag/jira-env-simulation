@@ -31,9 +31,6 @@ def grade_action(task_id: str, action: str, signals: dict) -> float:
         raw_score = _grade_medium(action, signals)
     elif task_id == "hard":
         raw_score = _grade_hard(action, signals)
-    elif task_id == "assignment_guard":
-        raw_score = _grade_assignment_guard(action, signals)
-
     return round(min(max(raw_score, 0.01), 0.99), 3)
 
 
@@ -100,19 +97,3 @@ def _grade_hard(action: str, signals: dict) -> float:
     if action == "add_comment":
         return 0.08
     return 0.05
-
-
-def _grade_assignment_guard(action: str, signals: dict) -> float:
-    assigned = signals.get("assigned", False)
-    if not assigned:
-        if action == "assign_ticket":
-            return 0.99
-        if action == "resolve_ticket":
-            return 0.05
-        return 0.10
-
-    if action == "resolve_ticket":
-        return 0.95
-    if action == "update_status":
-        return 0.30
-    return 0.10

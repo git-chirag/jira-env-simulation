@@ -142,43 +142,6 @@ TASKS = {
             },
         ],
     },
-    "assignment_guard": {
-        "description": "Avoid resolving work before assignment and preserve clean workflow discipline.",
-        "ideal_action": "assign_ticket",
-        "steps": [
-            {
-                "observation": (
-                    "Jira Simulation Report:\n"
-                    "Task: assignment_guard\n"
-                    "A medium-priority ticket is open and unassigned.\n"
-                    "Resolving before assignment is considered incorrect workflow.\n"
-                    "Choose one action type: assign_ticket, resolve_ticket, add_comment, update_status, or change_priority."
-                ),
-                "signals": {
-                    "priority": "medium",
-                    "assigned": False,
-                    "status": "open",
-                    "assignment_required": True,
-                    "ideal_action": "assign_ticket",
-                },
-            },
-            {
-                "observation": (
-                    "Jira Simulation Report:\n"
-                    "Task: assignment_guard\n"
-                    "The ticket is now assigned and can be resolved safely.\n"
-                    "Choose one action type: assign_ticket, resolve_ticket, add_comment, update_status, or change_priority."
-                ),
-                "signals": {
-                    "priority": "medium",
-                    "assigned": True,
-                    "status": "open",
-                    "assignment_required": True,
-                    "ideal_action": "resolve_ticket",
-                },
-            },
-        ],
-    },
 }
 
-TASK_NAMES = list(TASKS.keys())
+TASK_NAMES = ["easy", "medium", "hard"]

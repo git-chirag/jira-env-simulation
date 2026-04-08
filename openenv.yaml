@@ -42,11 +42,6 @@ tasks:
     steps: 3
     ideal_action: assign_ticket
 
-  - id: assignment_guard
-    description: Avoid resolving a ticket before assignment and preserve workflow discipline.
-    steps: 2
-    ideal_action: assign_ticket
-
 scoring:
   reward_range: [0.0, 1.0]
   success_threshold: 0.5

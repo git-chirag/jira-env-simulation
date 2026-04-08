@@ -49,6 +49,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
 
         step_data = self._task_def["steps"][self._step_idx]
         reward = grade_action(self._task_id, action.action, step_data["signals"])
+        reward = max(0.01, min(reward, 0.99))
         self._rewards.append(reward)
         self._step_idx += 1
         self._done = self._step_idx >= len(self._task_def["steps"])
