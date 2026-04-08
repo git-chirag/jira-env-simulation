@@ -38,12 +38,13 @@ def grade_medium_task(env: JiraEnv) -> float:
     return clamp_score(completion_score * efficiency_score)
 
 
-def grade_hard_task(env: JiraEnv, resolved_order: list[int]) -> float:
+def grade_hard_task(env: JiraEnv) -> float:
     total_tickets = len(env.tickets)
     if total_tickets == 0:
         return 0.0
 
     completion_score = count_resolved_tickets(env) / total_tickets
+    resolved_order = getattr(env, "resolved_order", [])
 
     priorities = get_priority_order(env, resolved_order)
     high_ticket_count = sum(1 for ticket in env.tickets if ticket.priority == "high")
@@ -64,13 +65,15 @@ def grade_hard_task(env: JiraEnv, resolved_order: list[int]) -> float:
     return clamp_score(final_score)
 
 
-def _resolve_ticket(env: JiraEnv, ticket_id: int, user: str, resolved_order: list[int] | None = None) -> None:
+def _resolve_ticket(env: JiraEnv, ticket_id: int, user: str) -> None:
     env.step(Action(action_type="assign_ticket", ticket_id=ticket_id, user=user))
     result = env.step(Action(action_type="resolve_ticket", ticket_id=ticket_id))
     if result.observation.tickets:
         for ticket in result.observation.tickets:
-            if ticket.id == ticket_id and ticket.status == "resolved" and resolved_order is not None:
-                resolved_order.append(ticket_id)
+            if ticket.id == ticket_id and ticket.status == "resolved":
+                resolved_order = getattr(env, "resolved_order", None)
+                if resolved_order is not None:
+                    resolved_order.append(ticket_id)
                 break
 
 
@@ -165,7 +168,7 @@ def run_hard_task(env: JiraEnv) -> float:
         ),
     ]
 
-    resolved_order: list[int] = []
+    env.resolved_order = []
     for ticket_id, user in [
         (2, "carol"),
         (1, "alice"),
@@ -173,13 +176,13 @@ def run_hard_task(env: JiraEnv) -> float:
         (5, "dave"),
         (4, "erin"),
     ]:
-        _resolve_ticket(env, ticket_id=ticket_id, user=user, resolved_order=resolved_order)
+        _resolve_ticket(env, ticket_id=ticket_id, user=user)
         if ticket_id == 1:
             env.step(Action(action_type="add_comment", ticket_id=4, comment="Queue after urgent work"))
         if env.state().current_step >= env.max_steps:
             break
 
-    return grade_hard_task(env, resolved_order)
+    return grade_hard_task(env)
 
 
 if __name__ == "__main__":
