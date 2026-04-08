@@ -4,6 +4,24 @@ from models import Action, Observation, StepResult, Ticket
 
 
 class JiraEnv:
+    TASK_CONFIGS = {
+        "easy": {
+            "difficulty": "easy",
+            "description": "Resolve a single high-priority ticket by assigning it and then resolving it.",
+            "max_steps": 10,
+        },
+        "medium": {
+            "difficulty": "medium",
+            "description": "Resolve multiple tickets with mixed priorities while avoiding unnecessary actions.",
+            "max_steps": 15,
+        },
+        "hard": {
+            "difficulty": "hard",
+            "description": "Resolve tickets while optimizing priority and efficiency.",
+            "max_steps": 20,
+        },
+    }
+
     def __init__(self, max_steps: int = 10) -> None:
         self.default_max_steps = max_steps
         self.max_steps = max_steps
@@ -16,10 +34,11 @@ class JiraEnv:
             "low": 7,
         }
 
-    def reset(self, task_id: str | None = None) -> StepResult:
+    def reset(self, seed: int | None = None, task_id: str | None = None) -> StepResult:
+        del seed
         selected_task = (task_id or "medium").strip().lower()
         self.current_step = 0
-        self.current_task_id = selected_task if selected_task in {"easy", "medium", "hard"} else "medium"
+        self.current_task_id = selected_task if selected_task in self.TASK_CONFIGS else "medium"
         self.max_steps = self._max_steps_for_task(self.current_task_id)
         self.tickets = self._build_tickets(self.current_task_id)
         return StepResult(
@@ -167,10 +186,9 @@ class JiraEnv:
         ]
 
     def _max_steps_for_task(self, task_id: str) -> int:
-        if task_id == "easy":
-            return 6
-        if task_id == "hard":
-            return max(self.default_max_steps, 20)
+        task_config = self.TASK_CONFIGS.get(task_id)
+        if task_config:
+            return max(self.default_max_steps, int(task_config["max_steps"]))
         return max(self.default_max_steps, 10)
 
     def _is_done(self) -> bool:

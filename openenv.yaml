@@ -28,11 +28,13 @@ action_space:
 
 endpoints:
   - /
+  - /health
   - /reset
   - /step
   - /state
   - /tasks
   - /grader
+  - /schema
 
 tasks:
   - id: easy
