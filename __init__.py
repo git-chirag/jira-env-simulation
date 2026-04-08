@@ -1,1 +1,1 @@
-# Root package marker for validator-friendly imports.
+# Root package marker for submission-friendly package imports.
