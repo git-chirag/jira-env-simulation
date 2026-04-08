@@ -6,7 +6,7 @@ Runs an LLM agent through all Jira tasks and emits structured stdout logs.
 
 Required environment variables:
     API_BASE_URL      LLM API endpoint
-    API_KEY           API key
+    HF_TOKEN          Hugging Face / API key
     MODEL_NAME        Model identifier
     LOCAL_IMAGE_NAME  (optional) Docker image to launch as env server
 
@@ -29,7 +29,7 @@ from tasks.definitions import TASKS
 
 IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 API_BASE_URL = os.environ["API_BASE_URL"]
-API_KEY = os.environ["API_KEY"]
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 BENCHMARK = "jira-env"
@@ -180,6 +180,9 @@ def run_task(client: OpenAI, task_name: str) -> None:
 
 
 def main() -> None:
+    if not API_KEY:
+        raise RuntimeError("Set API_KEY, HF_TOKEN, or OPENAI_API_KEY before running inference.py")
+
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     try:
         for task_name in ["easy", "medium", "hard"]:

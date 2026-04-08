@@ -97,6 +97,7 @@ The reward function is **dense and structured**:
 - High-priority tickets are expected to be resolved within 3 steps, medium within 5, and low within 7. Missing those SLAs adds a small penalty.  
 - Resolving within SLA gives a small efficiency bonus, which makes early correct handling more valuable than late cleanup.  
 - Hard-task scoring now strongly rewards resolving urgent tickets before lower-priority work and penalizes inefficient action sequences.
+- Validator-facing rewards are clamped to the strict OpenEnv-safe range **0.01–0.99**.
 
 ---
 
@@ -106,13 +107,13 @@ The environment includes **3 graded tasks**:
 
 ### 🟢 Easy
 - Resolve a single high-priority ticket  
-- Score: binary (0 or 1)
+- Score: highest when the agent assigns first and then resolves cleanly
 
 ---
 
 ### 🟡 Medium
 - Resolve multiple tickets  
-- Score: completion × efficiency  
+- Score: higher when the agent continues to sequence assignment and resolution efficiently
 
 ---
 
@@ -127,7 +128,7 @@ Score is computed as:
 - priority correctness  
 - efficiency score  
 
-👉 Produces a normalized score between **0.0 – 1.0**
+👉 Produces a normalized score between **0.01 – 0.99**
 
 ---
 
@@ -135,11 +136,19 @@ Score is computed as:
 
 A deterministic baseline agent is included (`inference.py`):
 
-- follows simple rules  
-- intentionally imperfect  
-- achieves ~**0.7 score**
+- uses the OpenAI client with `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN`/`API_KEY`
+- falls back to deterministic Jira workflow rules if the model output is unusable
+- emits strict `[START]`, `[STEP]`, and `[END]` logs required by the validator
 
-This ensures meaningful comparison with stronger agents.
+Current fallback baseline scores:
+
+| Task | Baseline Score |
+| :--- | ---: |
+| `easy` | `0.990` |
+| `medium` | `0.907` |
+| `hard` | `0.970` |
+
+These scores come from the current deterministic fallback path over the 3 published tasks.
 
 ---
 
@@ -158,5 +167,30 @@ The environment is exposed via FastAPI:
 ```bash
 docker build -t jira-env .
 docker run -p 7860:7860 jira-env
+```
+
+Set inference environment variables before running the baseline:
+
+```bash
+export API_BASE_URL=https://router.huggingface.co/v1
+export MODEL_NAME=gpt-4o-mini
+export HF_TOKEN=your_token_here
+python inference.py
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:API_BASE_URL="https://router.huggingface.co/v1"
+$env:MODEL_NAME="gpt-4o-mini"
+$env:HF_TOKEN="your_token_here"
+python inference.py
+```
+
+Local validation:
+
+```bash
+openenv validate
+```
 
 <!-- noop: trigger rebuild -->

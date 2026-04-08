@@ -1,6 +1,14 @@
 # tasks/graders.py
 # Reward functions for each task. All rewards are strictly in (0.0, 1.0).
 
+__all__ = [
+    "grade_action",
+    "grade_easy",
+    "grade_medium",
+    "grade_hard",
+    "TASK_GRADERS",
+]
+
 
 def grade_action(task_id: str, action: str, signals: dict) -> float:
     """
@@ -26,15 +34,15 @@ def grade_action(task_id: str, action: str, signals: dict) -> float:
 
     raw_score = 0.50
     if task_id == "easy":
-        raw_score = _grade_easy(action, signals)
+        raw_score = grade_easy(action, signals)
     elif task_id == "medium":
-        raw_score = _grade_medium(action, signals)
+        raw_score = grade_medium(action, signals)
     elif task_id == "hard":
-        raw_score = _grade_hard(action, signals)
+        raw_score = grade_hard(action, signals)
     return round(min(max(raw_score, 0.01), 0.99), 3)
 
 
-def _grade_easy(action: str, signals: dict) -> float:
+def grade_easy(action: str, signals: dict) -> float:
     if not signals.get("assigned", False):
         if action == "assign_ticket":
             return 0.99
@@ -53,7 +61,7 @@ def _grade_easy(action: str, signals: dict) -> float:
     return 0.08
 
 
-def _grade_medium(action: str, signals: dict) -> float:
+def grade_medium(action: str, signals: dict) -> float:
     priority = signals.get("priority", "medium")
     assigned = signals.get("assigned", False)
 
@@ -75,7 +83,7 @@ def _grade_medium(action: str, signals: dict) -> float:
     return 0.10
 
 
-def _grade_hard(action: str, signals: dict) -> float:
+def grade_hard(action: str, signals: dict) -> float:
     priority = signals.get("priority", "medium")
     assigned = signals.get("assigned", False)
 
@@ -97,3 +105,10 @@ def _grade_hard(action: str, signals: dict) -> float:
     if action == "add_comment":
         return 0.08
     return 0.05
+
+
+TASK_GRADERS = {
+    "easy": grade_easy,
+    "medium": grade_medium,
+    "hard": grade_hard,
+}
