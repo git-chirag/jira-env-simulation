@@ -38,21 +38,21 @@ tasks:
     entry_point: tasks_runner:run_easy_task
     description: Resolve a single high-priority ticket
     steps: 10
-    grader: graders:grade_easy
+    grader: server.grader:grade_easy
 
   - id: medium
     name: medium
     entry_point: tasks_runner:run_medium_task
     description: Resolve multiple tickets with mixed priorities
     steps: 15
-    grader: graders:grade_medium
+    grader: server.grader:grade_medium
 
   - id: hard
     name: hard
     entry_point: tasks_runner:run_hard_task
     description: Resolve tickets while optimizing priority and efficiency
     steps: 20
-    grader: graders:grade_hard
+    grader: server.grader:grade_hard
 
 scoring:
   reward_range: [0.0, 1.0]
