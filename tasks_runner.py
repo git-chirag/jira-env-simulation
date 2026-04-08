@@ -50,7 +50,7 @@ def run_easy_task(env: JiraEnv) -> float:
     if len(env.tickets) != 1:
         return 0.01
 
-    score = 1.0 if env.tickets[0].status == "resolved" else 0.0
+    score = 0.99 if env.tickets[0].status == "resolved" else 0.01
     return clamp_score(score)
 
 
@@ -160,9 +160,9 @@ def run_hard_task(env: JiraEnv) -> float:
     high_indices = [index for index, priority in enumerate(priorities) if priority == "high"]
     lower_indices = [index for index, priority in enumerate(priorities) if priority != "high"]
     if not lower_indices:
-        priority_score = 1.0
+        priority_score = 0.99
     elif high_indices and max(high_indices) < min(lower_indices):
-        priority_score = 1.0
+        priority_score = 0.99
     else:
         priority_score = 0.2
 
