@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "jira-env-simulation"
 version = "0.1.0"
@@ -5,12 +9,13 @@ description = "A simplified Jira-like OpenEnv environment for ticket resolution"
 authors = [{ name = "Chirag" }]
 requires-python = ">=3.10"
 dependencies = [
-    "openenv>=0.2.0",
+    "openenv-core[core]>=0.2.2",
 ]
 
 [project.scripts]
 server = "server.app:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["tasks*"]
+[tool.setuptools]
+include-package-data = true
+packages = ["jira_env_simulation", "jira_env_simulation.server", "jira_env_simulation.tasks"]
+package-dir = { "jira_env_simulation" = ".", "jira_env_simulation.server" = "server", "jira_env_simulation.tasks" = "tasks" }
