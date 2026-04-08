@@ -31,21 +31,30 @@ tasks:
     description: Assign and resolve a single high-priority ticket correctly.
     steps: 2
     ideal_action: assign_ticket
+    grader: graders.easy_grader:EasyGrader
 
   - id: medium
     description: Handle multiple tickets with mixed priorities efficiently.
     steps: 3
     ideal_action: assign_ticket
+    grader: graders.medium_grader:MediumGrader
 
   - id: hard
     description: Prioritize urgent tickets first and avoid workflow mistakes.
     steps: 3
     ideal_action: assign_ticket
+    grader: graders.hard_grader:HardGrader
 
   - id: assignment_guard
     description: Avoid resolving a ticket before assignment and preserve workflow discipline.
     steps: 2
     ideal_action: assign_ticket
+    grader: graders.assignment_guard_grader:AssignmentGuardGrader
+
+scoring:
+  reward_range: [0.0, 1.0]
+  success_threshold: 0.5
+  score_formula: trajectory_adjusted_mean
 
 constraints:
   max_runtime_seconds: 1200

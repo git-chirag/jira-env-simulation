@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from env import JiraEnv
-from tasks_runner import run_medium_task
+from graders.common import extract_rewards, fallback_env_score, ideal_trajectory, trajectory_score
 
 
 def _resolve_env(*args, **kwargs) -> JiraEnv:
@@ -15,9 +15,14 @@ def _resolve_env(*args, **kwargs) -> JiraEnv:
 
 
 def grade(*args, **kwargs) -> float:
-    working_env = _resolve_env(*args, **kwargs)
-    score = float(run_medium_task(working_env))
-    return round(max(0.01, min(0.99, score)), 2)
+    for value in list(args) + list(kwargs.values()):
+        if isinstance(value, JiraEnv):
+            return fallback_env_score("medium", value)
+
+    rewards = extract_rewards(*args, **kwargs)
+    if rewards:
+        return trajectory_score(rewards)
+    return trajectory_score(ideal_trajectory("medium"))
 
 
 class MediumGrader:
