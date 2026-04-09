@@ -26,6 +26,8 @@ class Ticket:
 
 class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraTaskState]):
     SUPPORTS_CONCURRENT_SESSIONS = True
+    PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
+    SLA_THRESHOLDS = {"high": 3, "medium": 5, "low": 7}
     _http_task_id: Optional[str] = None
     _http_step_idx: int = 0
     _http_done: bool = False
@@ -44,7 +46,6 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._task_def: Any = None
         self._tickets: List[Ticket] = []
         self._dependencies: dict[int, list[int]] = {}
-        self._sla_thresholds = {"high": 3, "medium": 5, "low": 7}
 
     def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, **kwargs: Any) -> JiraTaskObservation:
         """Reset the environment to the start of a task."""
@@ -59,18 +60,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._rewards = []
         self._action_history = []
         self._dependencies = {ticket_id: deps[:] for ticket_id, deps in self._task_def.get("dependencies", {}).items()}
-        self._tickets = [
-            Ticket(
-                id=ticket_data["id"],
-                title=ticket_data["title"],
-                priority=ticket_data["priority"],
-                status=ticket_data["status"],
-                assigned_to=ticket_data.get("assigned_to"),
-                comments=list(ticket_data.get("comments", [])),
-                created_step=0,
-            )
-            for ticket_data in self._task_def.get("initial_tickets", [])
-        ]
+        self._tickets = [self._ticket_from_dict(ticket_data) for ticket_data in self._task_def.get("initial_tickets", [])]
         self._persist_http_state()
 
         return JiraTaskObservation(
@@ -150,18 +140,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         JiraTaskEnvironment._http_dependencies = {
             ticket_id: deps[:] for ticket_id, deps in self._dependencies.items()
         }
-        JiraTaskEnvironment._http_tickets = [
-            Ticket(
-                id=ticket.id,
-                title=ticket.title,
-                priority=ticket.priority,
-                status=ticket.status,
-                assigned_to=ticket.assigned_to,
-                comments=list(ticket.comments),
-                created_step=ticket.created_step,
-            )
-            for ticket in self._tickets
-        ]
+        JiraTaskEnvironment._http_tickets = [self._clone_ticket(ticket) for ticket in self._tickets]
 
     def _restore_http_state(self) -> None:
         self._task_id = JiraTaskEnvironment._http_task_id
@@ -173,18 +152,31 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._dependencies = {
             ticket_id: deps[:] for ticket_id, deps in JiraTaskEnvironment._http_dependencies.items()
         }
-        self._tickets = [
-            Ticket(
-                id=ticket.id,
-                title=ticket.title,
-                priority=ticket.priority,
-                status=ticket.status,
-                assigned_to=ticket.assigned_to,
-                comments=list(ticket.comments),
-                created_step=ticket.created_step,
-            )
-            for ticket in JiraTaskEnvironment._http_tickets
-        ]
+        self._tickets = [self._clone_ticket(ticket) for ticket in JiraTaskEnvironment._http_tickets]
+
+    @staticmethod
+    def _ticket_from_dict(ticket_data: dict[str, Any]) -> Ticket:
+        return Ticket(
+            id=ticket_data["id"],
+            title=ticket_data["title"],
+            priority=ticket_data["priority"],
+            status=ticket_data["status"],
+            assigned_to=ticket_data.get("assigned_to"),
+            comments=list(ticket_data.get("comments", [])),
+            created_step=ticket_data.get("created_step", 0),
+        )
+
+    @staticmethod
+    def _clone_ticket(ticket: Ticket) -> Ticket:
+        return Ticket(
+            id=ticket.id,
+            title=ticket.title,
+            priority=ticket.priority,
+            status=ticket.status,
+            assigned_to=ticket.assigned_to,
+            comments=list(ticket.comments),
+            created_step=ticket.created_step,
+        )
 
     def _build_observation(self) -> str:
         focus_ticket = self._select_focus_ticket()
@@ -247,10 +239,9 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         if not unresolved:
             return None
 
-        priority_rank = {"high": 0, "medium": 1, "low": 2}
         ready = [ticket for ticket in unresolved if not self._is_blocked(ticket)]
         candidates = ready if ready else unresolved
-        return sorted(candidates, key=lambda ticket: (priority_rank.get(ticket.priority, 3), ticket.id))[0]
+        return sorted(candidates, key=lambda ticket: (self.PRIORITY_RANK.get(ticket.priority, 3), ticket.id))[0]
 
     def _build_transition_context(self, action: str, target_ticket: Optional[Ticket]) -> dict[str, Any]:
         action_valid = action in {
@@ -295,6 +286,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         }
 
     def _finalize_transition_context(self, action: str, context: dict[str, Any]) -> None:
+        # Reward shaping depends on whether the action moved the queue forward,
+        # not just whether it was syntactically valid.
         unresolved_after = sum(1 for ticket in self._tickets if ticket.status != "resolved")
         context["unresolved_after"] = unresolved_after
         context["all_resolved_after"] = unresolved_after == 0
@@ -376,24 +369,23 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
     def _has_higher_priority_ready_ticket(self, ticket: Optional[Ticket]) -> bool:
         if ticket is None:
             return False
-        priority_rank = {"high": 0, "medium": 1, "low": 2}
-        ticket_rank = priority_rank.get(ticket.priority, 3)
+        ticket_rank = self.PRIORITY_RANK.get(ticket.priority, 3)
         for candidate in self._tickets:
             if candidate.id == ticket.id or candidate.status == "resolved" or self._is_blocked(candidate):
                 continue
-            if priority_rank.get(candidate.priority, 3) < ticket_rank:
+            if self.PRIORITY_RANK.get(candidate.priority, 3) < ticket_rank:
                 return True
         return False
 
     def _is_sla_risk(self, ticket: Optional[Ticket]) -> bool:
         if ticket is None or ticket.status == "resolved":
             return False
-        threshold = self._sla_thresholds.get(ticket.priority, 5)
+        threshold = self.SLA_THRESHOLDS.get(ticket.priority, 5)
         age = self._step_idx - ticket.created_step
         return age >= max(1, threshold - 1)
 
     def _resolved_within_sla(self, ticket: Ticket) -> bool:
-        threshold = self._sla_thresholds.get(ticket.priority, 5)
+        threshold = self.SLA_THRESHOLDS.get(ticket.priority, 5)
         age = self._step_idx - ticket.created_step
         return age <= threshold
 

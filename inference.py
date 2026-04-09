@@ -28,7 +28,6 @@ from openai import OpenAI
 from tasks.definitions import TASKS
 
 
-IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
@@ -46,6 +45,12 @@ ACTION_NAMES = (
     "change_priority",
     "add_comment",
 )
+POLICY_SAFE_LLM = "safe_llm"
+POLICY_RANDOM = "random"
+FOCUS_LINE_PATTERN = re.compile(r"Current focus:\s*Ticket #(\d+)(.*)", re.IGNORECASE | re.DOTALL)
+TICKET_PRIORITY_PATTERN = "Ticket #{ticket_id} .*? is (\\w+) priority"
+EpisodePayload = Dict[str, Any]
+FocusContext = Dict[str, Any]
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
@@ -85,28 +90,22 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
-def reset_env(task_name: str) -> dict:
-    response = requests.post(
-        f"{ENV_BASE_URL}/reset",
-        json={"task_id": task_name},
-        timeout=HTTP_TIMEOUT,
-    )
+def _post_env_json(path: str, payload: Dict[str, Any]) -> EpisodePayload:
+    response = requests.post(f"{ENV_BASE_URL}{path}", json=payload, timeout=HTTP_TIMEOUT)
     response.raise_for_status()
     return response.json()
 
 
-def step_env(action: str) -> dict:
-    response = requests.post(
-        f"{ENV_BASE_URL}/step",
-        json={"action": {"action": action}},
-        timeout=HTTP_TIMEOUT,
-    )
-    response.raise_for_status()
-    return response.json()
+def reset_env(task_name: str) -> EpisodePayload:
+    return _post_env_json("/reset", {"task_id": task_name})
 
 
-def extract_focus_context(observation: str) -> Dict[str, Any]:
-    focus_context: Dict[str, Any] = {
+def step_env(action_name: str) -> EpisodePayload:
+    return _post_env_json("/step", {"action": {"action": action_name}})
+
+
+def extract_focus_context(observation: str) -> FocusContext:
+    focus_context: FocusContext = {
         "focus_ticket_id": None,
         "priority": None,
         "blocked": False,
@@ -115,7 +114,7 @@ def extract_focus_context(observation: str) -> Dict[str, Any]:
         "reasoning_summary": "default workflow fallback",
     }
     text = observation or ""
-    focus_match = re.search(r"Current focus:\s*Ticket #(\d+)(.*)", text, re.IGNORECASE | re.DOTALL)
+    focus_match = FOCUS_LINE_PATTERN.search(text)
     if not focus_match:
         return focus_context
 
@@ -127,7 +126,7 @@ def extract_focus_context(observation: str) -> Dict[str, Any]:
     focus_context["ready_to_resolve"] = "ready to close" in focus_tail or "ready to resolve" in focus_tail
 
     ticket_match = re.search(
-        rf"Ticket #{focus_ticket_id} .*? is (\w+) priority",
+        TICKET_PRIORITY_PATTERN.format(ticket_id=focus_ticket_id),
         text,
         re.IGNORECASE,
     )
@@ -191,9 +190,9 @@ def choose_random_action(observation: str, rng: random.Random) -> str:
     return rng.choice(list(allowed_actions))
 
 
-def get_model_suggestion(client: OpenAI, observation: str, history: List[str]) -> Optional[str]:
+def get_model_suggestion(client: OpenAI, observation: str, decision_history: List[str]) -> Optional[str]:
     focus_context = extract_focus_context(observation)
-    history_block = "\n".join(history[-3:]) if history else "None"
+    history_block = "\n".join(decision_history[-3:]) if decision_history else "None"
     user_prompt = (
         f"Current Jira observation:\n{observation}\n\n"
         f"Focus analysis:\n"
@@ -223,10 +222,10 @@ def get_model_suggestion(client: OpenAI, observation: str, history: List[str]) -
         return None
 
 
-def choose_action(client: OpenAI, observation: str, history: List[str]) -> str:
+def choose_action(client: OpenAI, observation: str, decision_history: List[str]) -> str:
     allowed_actions = allowed_actions_for_observation(observation)
     rule_action = choose_rule_based_action(observation)
-    model_action = get_model_suggestion(client, observation, history)
+    model_action = get_model_suggestion(client, observation, decision_history)
 
     if model_action in allowed_actions:
         return model_action
@@ -238,17 +237,17 @@ def choose_action(client: OpenAI, observation: str, history: List[str]) -> str:
 def choose_action_with_context(
     client: OpenAI,
     observation: str,
-    history: List[str],
+    decision_history: List[str],
     policy: str,
     rng: Optional[random.Random] = None,
-) -> Tuple[str, Dict[str, Any]]:
+) -> Tuple[str, FocusContext]:
     context = extract_focus_context(observation)
-    if policy == "random":
+    if policy == POLICY_RANDOM:
         action = choose_random_action(observation, rng or random.Random(42))
         context["reasoning_summary"] = f"{context['reasoning_summary']}; random policy selected {action}"
         return action, context
 
-    action = choose_action(client, observation, history)
+    action = choose_action(client, observation, decision_history)
     context["reasoning_summary"] = f"{context['reasoning_summary']}; safe policy selected {action}"
     return action, context
 
@@ -256,35 +255,42 @@ def choose_action_with_context(
 def run_task(
     client: OpenAI,
     task_name: str,
-    policy: str = "safe_llm",
+    policy: str = POLICY_SAFE_LLM,
     rng: Optional[random.Random] = None,
-) -> Dict[str, Any]:
+) -> EpisodePayload:
     rewards: List[float] = []
-    history: List[str] = []
+    decision_history: List[str] = []
     resolved_order: List[int] = []
     steps_taken = 0
     score = 0.01
     success = False
     max_steps = len(TASKS[task_name]["steps"])
+    run_error: Optional[str] = None
 
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        result = reset_env(task_name)
+        episode_response = reset_env(task_name)
 
         for step in range(1, max_steps + 1):
-            if bool(result.get("done", False)):
+            if bool(episode_response.get("done", False)):
                 break
 
-            observation_text = result.get("observation", {}).get("text", "")
-            action_str, focus_context = choose_action_with_context(client, observation_text, history, policy, rng=rng)
+            observation_text = episode_response.get("observation", {}).get("text", "")
+            action_str, focus_context = choose_action_with_context(
+                client,
+                observation_text,
+                decision_history,
+                policy,
+                rng=rng,
+            )
             error: Optional[str] = None
 
             try:
-                result = step_env(action_str)
-                reward = float(result.get("reward")) if result.get("reward") is not None else 0.01
-                done = bool(result.get("done", False))
-            except Exception as exc:
+                episode_response = step_env(action_str)
+                reward = float(episode_response.get("reward")) if episode_response.get("reward") is not None else 0.01
+                done = bool(episode_response.get("done", False))
+            except requests.RequestException as exc:
                 error = str(exc)
                 reward = 0.01
                 done = True
@@ -294,7 +300,7 @@ def run_task(
             log_step(step=step, action=action_str, reward=reward, done=done, error=error)
             if action_str == "resolve_ticket" and reward >= 0.5 and focus_context.get("focus_ticket_id") is not None:
                 resolved_order.append(int(focus_context["focus_ticket_id"]))
-            history.append(
+            decision_history.append(
                 f"Step {step}: {focus_context.get('reasoning_summary', 'n/a')} -> {action_str} -> reward {reward:.2f}"
             )
 
@@ -305,8 +311,8 @@ def run_task(
             score = sum(rewards) / len(rewards)
             score = max(0.01, min(score, 0.99))
         success = score >= SUCCESS_SCORE_THRESHOLD
-    except Exception:
-        pass
+    except requests.RequestException as exc:
+        run_error = str(exc)
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
@@ -321,23 +327,24 @@ def run_task(
         "rewards": rewards,
         "resolved_order": resolved_order,
         "efficiency": round(steps_taken / max_steps, 3) if max_steps else 0.0,
+        "error": run_error,
     }
 
 
-def run_llm_agent(client: OpenAI) -> List[Dict[str, Any]]:
-    return [run_task(client, task_name, policy="safe_llm") for task_name in TASK_ORDER]
+def run_llm_agent(client: OpenAI) -> List[EpisodePayload]:
+    return [run_task(client, task_name, policy=POLICY_SAFE_LLM) for task_name in TASK_ORDER]
 
 
-def run_random_agent(seed: int = 42) -> List[Dict[str, Any]]:
+def run_random_agent(seed: int = 42) -> List[EpisodePayload]:
     rng = random.Random(seed)
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     try:
-        return [run_task(client, task_name, policy="random", rng=rng) for task_name in TASK_ORDER]
+        return [run_task(client, task_name, policy=POLICY_RANDOM, rng=rng) for task_name in TASK_ORDER]
     finally:
         client.close()
 
 
-def compare_agents(seed: int = 42) -> Dict[str, List[Dict[str, Any]]]:
+def compare_agents(seed: int = 42) -> Dict[str, List[EpisodePayload]]:
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     try:
         llm_results = run_llm_agent(client)
@@ -357,7 +364,7 @@ def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     try:
         for task_name in TASK_ORDER:
-            run_task(client, task_name, policy="safe_llm")
+            run_task(client, task_name, policy=POLICY_SAFE_LLM)
     finally:
         client.close()
 
