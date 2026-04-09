@@ -1,26 +1,6 @@
-"""
-FastAPI application for the Jira environment.
+"""FastAPI application for the Jira environment."""
 
-This module creates an HTTP server that exposes the JiraTaskEnvironment
-over HTTP and WebSocket endpoints, compatible with EnvClient.
-
-Endpoints:
-    - POST /reset: Reset the environment
-    - POST /step: Execute an action
-    - GET /state: Get current environment state
-    - GET /schema: Get action/observation schemas
-    - WS /ws: WebSocket endpoint for persistent sessions
-
-Usage:
-    # Development (with auto-reload):
-    uvicorn server.app:app --reload --host 0.0.0.0 --port 7860
-
-    # Production:
-    uvicorn server.app:app --host 0.0.0.0 --port 7860 --workers 4
-
-    # Or run directly:
-    python -m server.app
-"""
+from fastapi import APIRouter
 
 try:
     from openenv.core.env_server.http_server import create_app
@@ -30,10 +10,10 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
-    from ..models import JiraTaskAction, JiraTaskObservation
+    from ..models import JiraTaskAction, JiraTaskObservation, JiraTaskState
     from .jira_environment import JiraTaskEnvironment
 except (ModuleNotFoundError, ImportError):
-    from models import JiraTaskAction, JiraTaskObservation
+    from models import JiraTaskAction, JiraTaskObservation, JiraTaskState
     from server.jira_environment import JiraTaskEnvironment
 
 
@@ -44,6 +24,43 @@ app = create_app(
     env_name="jira-env",
     max_concurrent_envs=10,
 )
+
+
+def _remove_generated_route(path: str) -> None:
+    app.router.routes = [
+        route for route in app.router.routes
+        if getattr(route, "path", None) != path
+    ]
+
+
+_remove_generated_route("/state")
+_remove_generated_route("/ws")
+
+router = APIRouter()
+
+
+@router.get("/")
+def root() -> dict[str, object]:
+    return {
+        "status": "running",
+        "project": "Jira Env Simulation",
+        "message": "API is live",
+        "available_endpoints": {
+            "reset": "/reset (POST)",
+            "step": "/step (POST)",
+            "state": "/state (GET)",
+            "docs": "/docs",
+        },
+    }
+
+
+@router.get("/state", response_model=JiraTaskState)
+def get_state() -> JiraTaskState:
+    env = JiraTaskEnvironment()
+    return env.state
+
+
+app.include_router(router)
 
 
 def main():

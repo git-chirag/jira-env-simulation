@@ -13,8 +13,8 @@ class JiraClient(EnvClient[JiraTaskAction, JiraTaskObservation, JiraTaskState]):
     """
     Client for the Jira task environment.
 
-    This client maintains a persistent WebSocket connection to the environment server,
-    enabling efficient multi-step interactions with lower latency.
+    This client uses the OpenEnv client interface for multi-step interactions
+    with the environment server.
     """
 
     def _step_payload(self, action: JiraTaskAction) -> Dict[str, Any]:

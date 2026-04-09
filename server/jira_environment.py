@@ -1,21 +1,38 @@
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 from openenv.core.env_server import Environment
 
 try:
-    from ..local_models import Ticket
     from ..models import JiraTaskAction, JiraTaskObservation, JiraTaskState
     from ..tasks.definitions import TASKS, TASK_NAMES
     from ..tasks.graders import grade_action
 except ImportError:
-    from local_models import Ticket
     from models import JiraTaskAction, JiraTaskObservation, JiraTaskState
     from tasks.definitions import TASKS, TASK_NAMES
     from tasks.graders import grade_action
 
 
+@dataclass
+class Ticket:
+    id: int
+    title: str
+    priority: str
+    status: str
+    assigned_to: Optional[str] = None
+    comments: list[str] = field(default_factory=list)
+    created_step: int = 0
+
+
 class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraTaskState]):
     SUPPORTS_CONCURRENT_SESSIONS = True
+    _http_task_id: Optional[str] = None
+    _http_step_idx: int = 0
+    _http_done: bool = False
+    _http_rewards: List[float] = []
+    _http_task_def: Any = None
+    _http_tickets: List[Ticket] = []
+    _http_dependencies: dict[int, list[int]] = {}
 
     def __init__(self):
         self._task_id: Optional[str] = None
@@ -51,6 +68,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             )
             for ticket_data in self._task_def.get("initial_tickets", [])
         ]
+        self._persist_http_state()
 
         return JiraTaskObservation(
             text=self._build_observation(),
@@ -60,9 +78,23 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
     def step(self, action: JiraTaskAction) -> JiraTaskObservation:
         """Apply an action and transition to the next state."""
         if self._task_id is None:
-            raise RuntimeError("Call reset() before step()")
+            self._restore_http_state()
+        if self._task_id is None:
+            self.reset(task_id=TASK_NAMES[0])
         if self._done:
-            raise RuntimeError("Episode is finished")
+            return JiraTaskObservation(
+                text="",
+                task_id=self._task_id or "",
+                reward=0.01,
+                done=True,
+                metadata={
+                    "step": self._step_idx,
+                    "task_id": self._task_id,
+                    "rewards_so_far": self._rewards,
+                    "resolved_tickets": sum(1 for ticket in self._tickets if ticket.status == "resolved"),
+                    "warning": "episode_already_finished",
+                },
+            )
 
         self._step_idx += 1
         normalized_action = (action.action or "").strip().lower()
@@ -73,6 +105,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         reward = max(0.01, min(reward, 0.99))
         self._rewards.append(reward)
         self._done = self._all_resolved() or self._step_idx >= len(self._task_def["steps"])
+        self._persist_http_state()
 
         info = {
             "step": self._step_idx,
@@ -92,6 +125,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
     @property
     def state(self) -> JiraTaskState:
         """Return the current comprehensive state."""
+        if self._task_id is None:
+            self._restore_http_state()
         return JiraTaskState(
             task_id=self._task_id or "",
             step=self._step_idx,
@@ -99,6 +134,50 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             history=[str(r) for r in self._rewards],
             done=self._done
         )
+
+    def _persist_http_state(self) -> None:
+        JiraTaskEnvironment._http_task_id = self._task_id
+        JiraTaskEnvironment._http_step_idx = self._step_idx
+        JiraTaskEnvironment._http_done = self._done
+        JiraTaskEnvironment._http_rewards = list(self._rewards)
+        JiraTaskEnvironment._http_task_def = self._task_def
+        JiraTaskEnvironment._http_dependencies = {
+            ticket_id: deps[:] for ticket_id, deps in self._dependencies.items()
+        }
+        JiraTaskEnvironment._http_tickets = [
+            Ticket(
+                id=ticket.id,
+                title=ticket.title,
+                priority=ticket.priority,
+                status=ticket.status,
+                assigned_to=ticket.assigned_to,
+                comments=list(ticket.comments),
+                created_step=ticket.created_step,
+            )
+            for ticket in self._tickets
+        ]
+
+    def _restore_http_state(self) -> None:
+        self._task_id = JiraTaskEnvironment._http_task_id
+        self._step_idx = JiraTaskEnvironment._http_step_idx
+        self._done = JiraTaskEnvironment._http_done
+        self._rewards = list(JiraTaskEnvironment._http_rewards)
+        self._task_def = JiraTaskEnvironment._http_task_def
+        self._dependencies = {
+            ticket_id: deps[:] for ticket_id, deps in JiraTaskEnvironment._http_dependencies.items()
+        }
+        self._tickets = [
+            Ticket(
+                id=ticket.id,
+                title=ticket.title,
+                priority=ticket.priority,
+                status=ticket.status,
+                assigned_to=ticket.assigned_to,
+                comments=list(ticket.comments),
+                created_step=ticket.created_step,
+            )
+            for ticket in JiraTaskEnvironment._http_tickets
+        ]
 
     def _build_observation(self) -> str:
         focus_ticket = self._select_focus_ticket()
