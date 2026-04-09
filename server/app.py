@@ -1,6 +1,8 @@
 """FastAPI application for the Jira environment."""
 
-from fastapi import APIRouter
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
 try:
@@ -38,6 +40,7 @@ def _remove_generated_route(path: str) -> None:
 
 _remove_generated_route("/state")
 _remove_generated_route("/ws")
+_remove_generated_route("/step")
 
 router = APIRouter()
 
@@ -242,6 +245,29 @@ def root() -> HTMLResponse:
 def get_state() -> JiraTaskState:
     env = JiraTaskEnvironment()
     return env.state
+
+
+@router.post("/step")
+def step(payload: dict[str, Any]) -> dict[str, Any]:
+    action_payload = payload.get("action")
+    if not isinstance(action_payload, dict):
+        raise HTTPException(status_code=422, detail="Expected payload shape: {'action': {'action': '<action_name>'}}")
+
+    action_name = action_payload.get("action")
+    if not isinstance(action_name, str):
+        raise HTTPException(status_code=422, detail="Missing action.action string")
+
+    env = JiraTaskEnvironment()
+    result = env.step(JiraTaskAction(action=action_name))
+    return {
+        "observation": {
+            "text": result.text,
+            "task_id": result.task_id,
+        },
+        "reward": result.reward,
+        "done": result.done,
+        "info": result.metadata or {},
+    }
 
 
 app.include_router(router)

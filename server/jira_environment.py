@@ -85,6 +85,11 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
                     "task_id": self._task_id,
                     "rewards_so_far": self._rewards,
                     "resolved_tickets": sum(1 for ticket in self._tickets if ticket.status == "resolved"),
+                    "focus_ticket_id": None,
+                    "focus_priority": None,
+                    "blocked": False,
+                    "action_effect": "no_op_episode_already_finished",
+                    "reward_reason": "episode already finished; extra steps are safely ignored",
                     "warning": "episode_already_finished",
                 },
             )
@@ -107,6 +112,11 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             "task_id": self._task_id,
             "rewards_so_far": self._rewards,
             "resolved_tickets": sum(1 for ticket in self._tickets if ticket.status == "resolved"),
+            "focus_ticket_id": target_ticket.id if target_ticket else None,
+            "focus_priority": target_ticket.priority if target_ticket else None,
+            "blocked": context["blocked"],
+            "action_effect": self._describe_action_effect(normalized_action, context),
+            "reward_reason": self._describe_reward_reason(normalized_action, context),
         }
 
         return JiraTaskObservation(
@@ -416,3 +426,59 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         if priority == "medium":
             return "high"
         return "high"
+
+    @staticmethod
+    def _describe_action_effect(action: str, context: dict[str, Any]) -> str:
+        if not context["target_exists"]:
+            return "no_focus_ticket"
+        if not context["action_valid"]:
+            return "invalid_action"
+        if action == "assign_ticket":
+            return "ticket_assigned" if context["assigned_now"] else "assignment_no_effect"
+        if action == "update_status":
+            return "status_updated_to_in_progress" if context["status_updated"] else "status_update_no_effect"
+        if action == "resolve_ticket":
+            if context["resolved_now"]:
+                return "ticket_resolved"
+            if context["blocked"]:
+                return "resolve_blocked_by_dependency"
+            if not context["assigned_before"]:
+                return "resolve_failed_unassigned"
+            if context["status_before"] != "in_progress":
+                return "resolve_failed_not_in_progress"
+            return "resolve_no_effect"
+        if action == "change_priority":
+            return "priority_changed" if context["priority_changed"] else "priority_change_no_effect"
+        if action == "add_comment":
+            return "comment_added" if context["comment_added"] else "comment_no_effect"
+        return "no_effect"
+
+    @staticmethod
+    def _describe_reward_reason(action: str, context: dict[str, Any]) -> str:
+        if not context["target_exists"]:
+            return "no focus ticket was available"
+        if not context["action_valid"]:
+            return "action name was not recognized"
+        if action == "resolve_ticket" and context["blocked"]:
+            return "focus ticket is blocked by unresolved dependencies"
+        if action == "assign_ticket" and context["assigned_now"]:
+            return f"assigned the {context['priority_before']} priority focus ticket"
+        if action == "update_status" and context["status_updated"]:
+            return "moved the assigned focus ticket into active work"
+        if action == "resolve_ticket" and context["resolved_now"]:
+            if context["within_sla"]:
+                return "resolved the focus ticket within SLA"
+            return "resolved the focus ticket after SLA pressure increased"
+        if action == "change_priority" and context["priority_changed"]:
+            if context["priority_change_useful"]:
+                return "reprioritized a ticket that was approaching SLA risk"
+            return "changed priority without strong operational need"
+        if action == "add_comment" and context["comment_added"]:
+            if context["comment_useful"]:
+                return "documented blocked or SLA-risk work"
+            return "added a low-value operational comment"
+        if context["repeated_no_progress"]:
+            return "repeated a no-progress action"
+        if context["no_progress"]:
+            return "action did not move the queue forward"
+        return "reward reflects the action outcome and current workflow state"
