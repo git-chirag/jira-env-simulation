@@ -1,10 +1,15 @@
 TASKS = {
     "easy": {
-        "description": "Resolve a single urgent production issue by assigning it and then closing it quickly.",
+        "description": "Resolve the active urgent production issue cleanly while ignoring already-closed background work in the queue.",
         "ideal_action": "assign_ticket",
         "steps": [
+            {"milestone": "review the visible queue"},
+            {"milestone": "triage urgent ticket"},
+            {"milestone": "confirm ownership"},
             {"milestone": "assign urgent ticket"},
+            {"milestone": "move ticket into active work"},
             {"milestone": "resolve urgent ticket"},
+            {"milestone": "close out the incident cleanly"},
         ],
         "initial_tickets": [
             {
@@ -13,17 +18,39 @@ TASKS = {
                 "priority": "high",
                 "status": "open",
                 "assigned_to": None,
+            },
+            {
+                "id": 2,
+                "title": "Confirm billing banner copy",
+                "priority": "medium",
+                "status": "resolved",
+                "assigned_to": "alice",
+            },
+            {
+                "id": 3,
+                "title": "Archive stale support attachment",
+                "priority": "low",
+                "status": "resolved",
+                "assigned_to": "ops-bot",
             }
         ],
         "dependencies": {},
     },
     "medium": {
-        "description": "Handle a mixed queue where the urgent ticket must be assigned and resolved before closing lower-priority work.",
+        "description": "Handle a realistic mixed queue where the urgent incident must be assigned and resolved before working through already-assigned follow-up tickets.",
         "ideal_action": "assign_ticket",
         "steps": [
+            {"milestone": "review the mixed queue"},
+            {"milestone": "triage the urgent ticket first"},
             {"milestone": "assign urgent ticket"},
+            {"milestone": "move the urgent incident into active work"},
             {"milestone": "resolve urgent ticket"},
+            {"milestone": "confirm downstream work is unblocked"},
+            {"milestone": "review remaining assigned work"},
             {"milestone": "resolve assigned follow-up"},
+            {"milestone": "clear the second assigned ticket"},
+            {"milestone": "verify only low-value cleanup remains"},
+            {"milestone": "complete the queue efficiently"},
         ],
         "initial_tickets": [
             {
@@ -42,21 +69,47 @@ TASKS = {
             },
             {
                 "id": 3,
+                "title": "Repair webhook retry job",
+                "priority": "medium",
+                "status": "in_progress",
+                "assigned_to": "bob",
+            },
+            {
+                "id": 4,
                 "title": "Refresh support FAQ",
                 "priority": "low",
                 "status": "resolved",
                 "assigned_to": "ops-bot",
             },
+            {
+                "id": 5,
+                "title": "Clean stale dashboard warnings",
+                "priority": "low",
+                "status": "open",
+                "assigned_to": None,
+            },
         ],
         "dependencies": {},
     },
     "hard": {
-        "description": "Resolve a realistic queue with priority discipline and a dependency that blocks follow-up work until the incident is closed.",
+        "description": "Resolve a crowded production queue with strict priority discipline, multiple active tickets, and blocked follow-up work that should only be addressed after the incident is cleared.",
         "ideal_action": "assign_ticket",
         "steps": [
+            {"milestone": "review the dependency-sensitive queue"},
+            {"milestone": "identify the blocking incident"},
             {"milestone": "assign blocking incident"},
+            {"milestone": "move the blocker into active work"},
             {"milestone": "resolve blocking incident"},
+            {"milestone": "confirm dependency is cleared"},
+            {"milestone": "review the newly available follow-up"},
             {"milestone": "resolve dependent follow-up"},
+            {"milestone": "clear the second operational follow-up"},
+            {"milestone": "close the remaining medium queue item"},
+            {"milestone": "verify low-priority cleanup is already complete"},
+            {"milestone": "avoid unnecessary admin churn"},
+            {"milestone": "finish the queue with priority discipline"},
+            {"milestone": "leave the state ready for handoff"},
+            {"milestone": "preserve auditability across the backlog"},
         ],
         "initial_tickets": [
             {
@@ -75,14 +128,43 @@ TASKS = {
             },
             {
                 "id": 3,
+                "title": "Refund reconciliation drift",
+                "priority": "medium",
+                "status": "in_progress",
+                "assigned_to": "bob",
+            },
+            {
+                "id": 4,
+                "title": "Customer support macro cleanup",
+                "priority": "medium",
+                "status": "open",
+                "assigned_to": None,
+            },
+            {
+                "id": 5,
                 "title": "Low-priority cleanup follow-up",
                 "priority": "low",
                 "status": "resolved",
                 "assigned_to": "ops-bot",
             },
+            {
+                "id": 6,
+                "title": "Warehouse alert noise reduction",
+                "priority": "low",
+                "status": "open",
+                "assigned_to": None,
+            },
+            {
+                "id": 7,
+                "title": "Archive stale incident notes",
+                "priority": "low",
+                "status": "open",
+                "assigned_to": None,
+            },
         ],
         "dependencies": {
             2: [1],
+            3: [1],
         },
     },
 }

@@ -151,6 +151,8 @@ def choose_rule_based_action(observation: str) -> str:
 
     if "unassigned" in focus_text or "none are assigned yet" in text or "no ticket is assigned yet" in text:
         return "assign_ticket"
+    if "needs active work before it can be resolved" in text or "move it into active work before trying to close it" in text:
+        return "update_status"
     if "ready to resolve" in focus_text or "ready to close" in focus_text or "can be resolved safely" in focus_text:
         return "resolve_ticket"
     if "complete the work cleanly" in text:
@@ -178,6 +180,8 @@ def allowed_actions_for_observation(observation: str) -> tuple[str, ...]:
     focus_text = text.split("current focus:", 1)[1] if "current focus:" in text else text
     if "currently unassigned" in focus_text:
         return ("assign_ticket", "add_comment")
+    if "needs active work before it can be resolved" in text or "move it into active work before trying to close it" in text:
+        return ("update_status", "add_comment")
     if "ready to resolve" in focus_text or "ready to close" in focus_text or "complete the work cleanly" in focus_text:
         return ("resolve_ticket", "add_comment")
     if "blocked until" in focus_text:

@@ -6,7 +6,6 @@ colorTo: green
 sdk: docker
 app_port: 7860
 pinned: false
-base_path: /web
 tags:
   - openenv
 ---
@@ -125,6 +124,95 @@ Each ticket carries an implicit SLA window based on priority:
 
 Resolving within SLA adds a bonus. Missing the window reduces the reward for the resolution step.
 
+### Workflow Prerequisites
+
+The environment intentionally models simple but realistic operational discipline:
+
+- `assign_ticket` gives ownership to the agent but does not automatically start active work
+- `update_status` is used to move an assigned ticket into `in_progress`
+- `resolve_ticket` only succeeds when the focus ticket is:
+  - assigned
+  - already `in_progress`
+  - not blocked by dependencies
+
+This means the cleanest `easy` trajectory is now:
+
+1. `assign_ticket`
+2. `update_status`
+3. `resolve_ticket`
+
+### Exact Grading Rules
+
+All rewards are clipped to the strict OpenEnv-safe range `0.01` to `0.99`.
+
+Base reward maps:
+
+- assignment reward by priority:
+  - high: `0.32`
+  - medium: `0.26`
+  - low: `0.20`
+- resolution reward by priority:
+  - high: `0.82`
+  - medium: `0.66`
+  - low: `0.50`
+
+Common action scoring:
+
+- if no valid target ticket exists: `0.01`
+- if the action is invalid: `0.01`
+- if a blocked ticket is resolved: `0.01`
+- `assign_ticket`:
+  - successful assignment: reward by priority
+  - otherwise: `0.04`
+- `update_status`:
+  - status updated on an already assigned ticket: `0.22`
+  - status updated otherwise: `0.08`
+  - no useful change: `0.04`
+- `resolve_ticket`:
+  - successful resolution:
+    - reward by priority
+    - `+0.08` if within SLA
+    - `-0.15` if beyond SLA
+    - `+0.04` if this closes the final remaining ticket
+  - failed resolution: `0.02`
+- `change_priority`:
+  - useful reprioritization: `0.18`
+  - unnecessary reprioritization: `0.05`
+- `add_comment`:
+  - useful documentation on blocked or SLA-risk work: `0.16`
+  - low-value comment: `0.07`
+
+Global penalties applied after the action reward:
+
+- repeated action: `-0.05`
+- repeated no-progress action: `-0.08`
+- no-progress `assign_ticket`, `resolve_ticket`, or `update_status`: `-0.06`
+- ignoring a higher-priority ready ticket with a non-assignment action: `-0.07`
+
+Task-specific bonuses:
+
+- `easy`:
+  - base bonus: `+0.08`
+  - additional `+0.04` for correctly assigning the high-priority focus ticket
+  - additional `+0.22` for correctly moving the assigned high-priority ticket into active work
+  - additional `+0.04` for resolving the final remaining ticket
+- `medium`:
+  - `+0.02` when a successful resolution happens and unresolved tickets still remain
+- `hard`:
+  - `+0.06` when an action clears a dependency
+  - `+0.04` for a successful high-priority `assign_ticket` or `resolve_ticket`
+  - `-0.08` if a higher-priority ready ticket was available before the action
+
+### Why The Scores Separate By Difficulty
+
+The three published tasks are intentionally different in both queue size and workflow burden:
+
+- `easy` is a short, clean incident workflow with a visible backlog but only one active urgent ticket
+- `medium` requires resolving several operational tickets in sequence
+- `hard` combines a larger queue, more medium-priority work, and dependency clearing before follow-up work can be finished
+
+This keeps the benchmark realistic while still deterministic enough for reproducible evaluation.
+
 ## Baseline Agent
 
 `inference.py` provides a validator-compatible baseline agent.
@@ -145,9 +233,9 @@ The current deterministic safe policy achieves the following local scores over t
 
 | Task | Mean Score |
 | :--- | ---: |
-| `easy` | `0.660` |
-| `medium` | `0.657` |
-| `hard` | `0.693` |
+| `easy` | `0.650` |
+| `medium` | `0.461` |
+| `hard` | `0.394` |
 
 These are trajectory means over the current reward function and provide a stable local reference point for debugging and regression checks.
 
@@ -156,8 +244,9 @@ These are trajectory means over the current reward function and provide a stable
 For the `hard` task, a strong short trajectory is:
 
 1. `assign_ticket` on the high-priority blocking incident
-2. `resolve_ticket` on the blocker
-3. `resolve_ticket` on the now-unblocked dependent ticket
+2. `update_status` on the blocker
+3. `resolve_ticket` on the blocker
+4. continue activating and resolving the newly unblocked follow-up tickets in priority order
 
 This sequence clears the dependency chain without wasting steps and yields a strong score.
 

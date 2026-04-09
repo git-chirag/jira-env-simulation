@@ -202,6 +202,11 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
                 state_line = (
                     f"Ticket #{ticket.id} '{ticket.title}' is {ticket.priority} priority, {ticket.status}, and currently unassigned."
                 )
+            elif ticket.status != "in_progress":
+                state_line = (
+                    f"Ticket #{ticket.id} '{ticket.title}' is {ticket.priority} priority, assigned to {ticket.assigned_to}, "
+                    f"status {ticket.status}, and needs active work before it can be resolved."
+                )
             else:
                 state_line = (
                     f"Ticket #{ticket.id} '{ticket.title}' is {ticket.priority} priority, assigned to {ticket.assigned_to}, "
@@ -224,6 +229,12 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
                 f"Current focus: Ticket #{focus_ticket.id} is the most urgent open item and is currently unassigned."
             )
             lines.append("The best next move starts progress on the current focus ticket.")
+        elif focus_ticket.status != "in_progress":
+            lines.append("")
+            lines.append(
+                f"Current focus: Ticket #{focus_ticket.id} is assigned but still marked {focus_ticket.status}."
+            )
+            lines.append("Move it into active work before trying to close it.")
         else:
             lines.append("")
             lines.append(
@@ -265,6 +276,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             "priority_before": target_ticket.priority if target_ticket else None,
             "status_before": target_ticket.status if target_ticket else None,
             "assigned_before": bool(target_ticket.assigned_to) if target_ticket else False,
+            "ready_before": bool(target_ticket and target_ticket.assigned_to and target_ticket.status == "in_progress" and not blocked),
             "unresolved_before": unresolved_before,
             "higher_priority_ready_before": self._has_higher_priority_ready_ticket(target_ticket),
             "sla_risk": self._is_sla_risk(target_ticket),
@@ -314,14 +326,17 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         if action == "assign_ticket":
             if not target_ticket.assigned_to:
                 target_ticket.assigned_to = "agent"
-                if target_ticket.status == "open":
-                    target_ticket.status = "in_progress"
                 context["assigned_now"] = True
                 context["action_success"] = True
             return
 
         if action == "resolve_ticket":
-            if target_ticket.status != "resolved" and target_ticket.assigned_to and not context["blocked"]:
+            if (
+                target_ticket.status != "resolved"
+                and target_ticket.assigned_to
+                and target_ticket.status == "in_progress"
+                and not context["blocked"]
+            ):
                 target_ticket.status = "resolved"
                 context["resolved_now"] = True
                 context["within_sla"] = self._resolved_within_sla(target_ticket)

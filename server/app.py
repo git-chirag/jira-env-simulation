@@ -45,9 +45,9 @@ router = APIRouter()
 def _render_task_cards() -> str:
     cards: list[str] = []
     reference_scores = {
-        "easy": "0.660",
-        "medium": "0.657",
-        "hard": "0.693",
+        "easy": "0.650",
+        "medium": "0.461",
+        "hard": "0.394",
     }
     for task_id, definition in TASKS.items():
         cards.append(
@@ -55,11 +55,11 @@ def _render_task_cards() -> str:
             <article class="task-card">
               <div class="task-header">
                 <h3>{task_id.title()}</h3>
-                <span>{len(definition["steps"])} steps</span>
+                <span>{len(definition["steps"])} step budget</span>
               </div>
               <p>{definition["description"]}</p>
               <div class="task-metric">
-                <strong>Reference score</strong>
+                <strong>Latest local baseline</strong>
                 <span>{reference_scores.get(task_id, "n/a")}</span>
               </div>
             </article>

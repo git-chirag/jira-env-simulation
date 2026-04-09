@@ -59,7 +59,19 @@ def grade_action(task_id: str, action: str, transition: dict) -> float:
 
 
 def grade_easy(action: str, transition: dict) -> float:
-    return _grade_common(action, transition, task_bonus=0.03)
+    bonus = 0.08
+    if action == "assign_ticket" and transition.get("assigned_now") and transition.get("priority_before") == "high":
+        bonus += 0.04
+    if (
+        action == "update_status"
+        and transition.get("status_updated")
+        and transition.get("assigned_before")
+        and transition.get("priority_before") == "high"
+    ):
+        bonus += 0.22
+    if action == "resolve_ticket" and transition.get("resolved_now") and transition.get("all_resolved_after"):
+        bonus += 0.04
+    return _grade_common(action, transition, task_bonus=bonus)
 
 
 def grade_medium(action: str, transition: dict) -> float:
