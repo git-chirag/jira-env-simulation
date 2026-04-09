@@ -139,22 +139,51 @@ def root() -> HTMLResponse:
           gap: 16px;
           margin-top: 24px;
         }}
+        .narrative-grid {{
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          gap: 16px;
+          margin-top: 24px;
+        }}
         .metrics {{
           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         }}
-        .metric, .task-card, .endpoint {{
+        .metric, .task-card, .endpoint, .narrative-card {{
           background: rgba(255, 255, 255, 0.82);
           border: 1px solid var(--line);
           border-radius: 18px;
           padding: 18px;
         }}
-        .metric strong, .task-header h3 {{
+        .metric strong, .task-header h3, .narrative-card strong {{
           display: block;
           font-size: 18px;
         }}
-        .metric span, .task-card p, .endpoint p {{
+        .metric span, .task-card p, .endpoint p, .narrative-card p, .narrative-card li {{
           color: var(--muted);
           line-height: 1.45;
+        }}
+        .narrative-card ul {{
+          margin: 12px 0 0;
+          padding-left: 18px;
+        }}
+        .difficulty-row {{
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-top: 12px;
+          padding-top: 12px;
+          border-top: 1px solid var(--line);
+        }}
+        .difficulty-tag {{
+          display: inline-block;
+          padding: 4px 10px;
+          border-radius: 999px;
+          background: var(--accent-soft);
+          color: var(--accent);
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
         }}
         .task-grid {{
           grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -213,6 +242,46 @@ def root() -> HTMLResponse:
 
           <div class="task-grid">
             {_render_task_cards()}
+          </div>
+
+          <div class="narrative-grid">
+            <section class="narrative-card">
+              <strong>Difficulty Ladder</strong>
+              <p>The benchmark increases difficulty by queue size, workflow burden, and dependency handling rather than by random hidden rules.</p>
+              <div class="difficulty-row">
+                <span class="difficulty-tag">Easy</span>
+                <span>Single urgent ticket, visible backlog, clean 3-step workflow</span>
+              </div>
+              <div class="difficulty-row">
+                <span class="difficulty-tag">Medium</span>
+                <span>Mixed queue with several follow-up tickets that must be cleared efficiently</span>
+              </div>
+              <div class="difficulty-row">
+                <span class="difficulty-tag">Hard</span>
+                <span>Crowded queue with blockers, dependency clearing, and longer operational trajectory</span>
+              </div>
+            </section>
+
+            <section class="narrative-card">
+              <strong>What Strong Agents Do</strong>
+              <p>High-performing agents look operationally disciplined, not merely API-compliant.</p>
+              <ul>
+                <li>Assign the highest-priority ready ticket first.</li>
+                <li>Move assigned work into active status before resolving it.</li>
+                <li>Clear blockers before attempting dependent follow-up work.</li>
+                <li>Avoid wasting steps on low-value comments or unnecessary reprioritization.</li>
+              </ul>
+            </section>
+
+            <section class="narrative-card">
+              <strong>How To Read The Scores</strong>
+              <p>The displayed values are latest local baseline trajectory means, not abstract difficulty ratings.</p>
+              <ul>
+                <li>Higher scores indicate cleaner workflow progression and fewer wasted steps.</li>
+                <li>Lower hard-task scores are expected because the queue is larger and more operationally constrained.</li>
+                <li>All step rewards are clipped into the validator-safe range of <code>0.01</code> to <code>0.99</code>.</li>
+              </ul>
+            </section>
           </div>
 
           <div class="endpoint-grid">

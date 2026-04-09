@@ -73,15 +73,15 @@ The published benchmark contains three deterministic tasks.
 
 ### Easy
 
-One high-priority production issue is open and unassigned. The best policy is short and clean: assign the incident, then resolve it quickly.
+An urgent production incident is open, while lower-priority background work is already complete. The agent should focus on the active incident, establish ownership, move it into active work, and close it cleanly.
 
 ### Medium
 
-A mixed queue is present. The agent must still focus on the urgent unassigned incident first, then finish the already assigned follow-up work efficiently.
+A larger mixed queue is present with several operational tickets already in flight. The agent must still prioritize the urgent incident first, then work through the remaining assigned follow-up tickets efficiently.
 
 ### Hard
 
-The queue contains a blocking high-priority incident and a dependent medium-priority ticket. The agent must clear the blocker first, then finish the downstream work without wasting steps.
+The queue is crowded and dependency-sensitive. A high-priority blocking incident must be cleared before multiple medium-priority follow-up tickets can be completed, while low-priority backlog remains in view.
 
 ## Reward Design
 
@@ -208,7 +208,7 @@ Task-specific bonuses:
 The three published tasks are intentionally different in both queue size and workflow burden:
 
 - `easy` is a short, clean incident workflow with a visible backlog but only one active urgent ticket
-- `medium` requires resolving several operational tickets in sequence
+- `medium` requires resolving several operational tickets in sequence across a fuller mixed queue
 - `hard` combines a larger queue, more medium-priority work, and dependency clearing before follow-up work can be finished
 
 This keeps the benchmark realistic while still deterministic enough for reproducible evaluation.
@@ -231,13 +231,33 @@ The baseline does not blindly trust the model. It accepts model suggestions only
 
 The current deterministic safe policy achieves the following local scores over the published tasks:
 
-| Task | Mean Score |
+| Task | Latest Local Baseline |
 | :--- | ---: |
 | `easy` | `0.650` |
 | `medium` | `0.461` |
 | `hard` | `0.394` |
 
 These are trajectory means over the current reward function and provide a stable local reference point for debugging and regression checks.
+
+## Failure Modes
+
+Weak agents in this environment usually fail in a few predictable ways:
+
+- they try to resolve work before ownership is established
+- they skip the `update_status` transition and attempt to close tickets that are not yet actively in progress
+- they spend steps on comments or reprioritization when the queue needs operational work instead
+- they ignore dependency blockers and attempt follow-up work too early
+- they waste steps on low-priority items while higher-priority ready work is still available
+
+## Strong Agent Behavior
+
+Stronger agents are distinguished by disciplined workflow sequencing:
+
+- they identify the highest-priority ready ticket first
+- they assign the focus ticket before attempting execution
+- they move assigned work into `in_progress` before resolving it
+- they clear blockers before working dependent tickets
+- they minimize administrative churn and keep the queue moving forward
 
 ## Example Trajectory
 
