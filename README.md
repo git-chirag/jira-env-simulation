@@ -11,183 +11,202 @@ tags:
   - openenv
 ---
 
-# 🎫 Jira Env Simulation
+# Jira Env Simulation
 
-A **Jira-like OpenEnv environment** for evaluating AI agents on real-world ticket management workflows such as prioritization, assignment, and resolution.
+Jira Env Simulation is an OpenEnv-compatible environment for evaluating AI agents on a real operational workflow: triaging, assigning, and resolving Jira-style tickets under priority pressure, SLA expectations, and dependency constraints.
 
----
+## Why This Environment Exists
 
-## 🧠 Motivation
+Many production agents look competent on one-shot benchmarks but fail on operational discipline. Real support and incident queues require the agent to:
 
-Modern AI agents are increasingly used to automate **operational workflows** — from customer support to incident management.
+- identify the most urgent unresolved work
+- avoid resolving tickets before ownership is established
+- respect blocked dependencies
+- resolve important incidents quickly enough to satisfy SLA pressure
+- avoid wasting time on administrative churn such as unnecessary reprioritization or repetitive no-op actions
 
-However, evaluating such agents requires:
-- structured environments  
-- measurable outcomes  
-- realistic constraints  
+This environment focuses on those behaviors rather than toy-game mechanics.
 
-This project simulates a **ticket management system (inspired by Jira/Atlassian)** where agents must:
-- interpret state  
-- take meaningful actions  
-- optimize for correctness and efficiency  
+## OpenEnv Interface
 
----
+The environment exposes the standard interaction loop:
 
-## ⚙️ Environment Overview
+- `POST /reset`
+- `POST /step`
+- `GET /state`
 
-The environment follows a reinforcement-learning style interaction:
+It also exposes:
 
-- `reset()` → initializes tickets  
-- `step(action)` → applies an action and returns:
-  - observation  
-  - reward  
-  - done  
-- `state()` → returns current system state  
+- `GET /` for a simple API landing response
+- `GET /health`
+- `GET /docs`
 
----
+Each episode returns a textual observation, a bounded reward, a `done` flag, and structured state history.
 
-## 🧩 Entities
+## Observation Space
 
-Each ticket contains:
+Observations are natural-language Jira summaries. Each observation includes:
 
-- `id`  
-- `title`  
-- `priority` (low / medium / high)  
-- `status` (open / in_progress / resolved)  
-- `assigned_to`  
-- `comments`  
-- `created_step`  
+- active task name
+- current step budget
+- ticket summaries for all visible tickets
+- assignment status
+- blocking dependency status
+- a short hint about the current focus ticket
 
----
+The observation format is intentionally textual so that a general-purpose LLM agent must interpret workflow state rather than rely on a hand-engineered game board.
 
-## 🎯 Action Space
+## Action Space
 
-Agents can perform:
+The action model supports five operational moves:
 
-- `assign_ticket(ticket_id, user)`  
-- `resolve_ticket(ticket_id)`  
-- `update_status(ticket_id, status)`  
-- `change_priority(ticket_id, priority)`  
-- `add_comment(ticket_id, text)`  
+- `assign_ticket`
+- `resolve_ticket`
+- `update_status`
+- `change_priority`
+- `add_comment`
 
----
+These are intentionally simple action labels, but their effect depends on the live environment state.
 
-## 📊 Reward Design
+## Task Ladder
 
-The reward function is **dense and structured**:
+The published benchmark contains three deterministic tasks.
 
-### ✅ Positive signals
-- Correct assignment  
-- Resolving tickets  
-- Handling high-priority tickets  
-- Fast resolution within SLA windows
+### Easy
 
-### ❌ Negative signals
-- Invalid actions  
-- Resolving without assignment  
-- Inefficient behavior  
-- Time penalties per step  
-- Delayed resolution beyond ticket SLA  
-- Unnecessary priority changes
+One high-priority production issue is open and unassigned. The best policy is short and clean: assign the incident, then resolve it quickly.
 
-👉 This ensures agents are rewarded for **both correctness and efficiency**
+### Medium
 
-### Reward Design Notes
+A mixed queue is present. The agent must still focus on the urgent unassigned incident first, then finish the already assigned follow-up work efficiently.
 
-- High-priority tickets are expected to be resolved within 3 steps, medium within 5, and low within 7. Missing those SLAs adds a small penalty.  
-- Resolving within SLA gives a small efficiency bonus, which makes early correct handling more valuable than late cleanup.  
-- Hard-task scoring now strongly rewards resolving urgent tickets before lower-priority work and penalizes inefficient action sequences.
-- Validator-facing rewards are clamped to the strict OpenEnv-safe range **0.01–0.99**.
+### Hard
 
----
+The queue contains a blocking high-priority incident and a dependent medium-priority ticket. The agent must clear the blocker first, then finish the downstream work without wasting steps.
 
-## 🧪 Tasks & Evaluation
+## Reward Design
 
-The environment includes **3 graded tasks**:
+The reward function is dense, bounded, and behavior-aware.
 
-### 🟢 Easy
-- Resolve a single high-priority ticket  
-- Score: highest when the agent assigns first and then resolves cleanly
+Positive signals:
 
----
+- assigning the right ticket, especially high-priority work
+- resolving tickets cleanly once they are assigned
+- clearing dependency blockers in the hard task
+- finishing work within SLA windows
+- completing an episode without unnecessary detours
 
-### 🟡 Medium
-- Resolve multiple tickets  
-- Score: higher when the agent continues to sequence assignment and resolution efficiently
+Negative signals:
 
----
+- invalid actions
+- trying to resolve blocked or unassigned work
+- repeated no-op actions
+- unnecessary administrative churn
+- low-value comments
+- reprioritization that is not justified by SLA risk
 
-### 🔴 Hard
-- Resolve tickets with:
-  - correct prioritization  
-  - efficient action sequence  
+### Realism-Oriented Shaping
 
-Score is computed as:
+The current grading logic is designed to reward realistic operational behavior rather than raw endpoint exploitation:
 
-- completion score  
-- priority correctness  
-- efficiency score  
+- assignment and resolution are the highest-value actions when they actually advance the queue
+- comments are only mildly rewarded when they document risk or blocked work; otherwise they are treated as churn
+- priority changes are only useful when a ticket is approaching SLA pressure
+- repeated actions that do not move the queue forward are penalized
+- all step rewards are clipped into the validator-safe range `0.01` to `0.99`
 
-👉 Produces a normalized score between **0.01 – 0.99**
+### SLA Policy
 
----
+Each ticket carries an implicit SLA window based on priority:
 
-## 🤖 Baseline Agent
+- high priority: 3 steps
+- medium priority: 5 steps
+- low priority: 7 steps
 
-A deterministic baseline agent is included (`inference.py`):
+Resolving within SLA adds a bonus. Missing the window reduces the reward for the resolution step.
 
-- uses the OpenAI client with `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN`/`API_KEY`
-- falls back to deterministic Jira workflow rules if the model output is unusable
-- emits strict `[START]`, `[STEP]`, and `[END]` logs required by the validator
+## Baseline Agent
 
-Current fallback baseline scores:
+`inference.py` provides a validator-compatible baseline agent.
 
-| Task | Baseline Score |
+Key properties:
+
+- uses the OpenAI client with `API_BASE_URL`, `MODEL_NAME`, and `API_KEY` / `HF_TOKEN`
+- emits strict `[START]`, `[STEP]`, and `[END]` logs
+- makes the required LLM proxy call on every decision step
+- applies a deterministic safety layer on top of the model output
+- falls back to a rule-based Jira policy if the model output is unusable
+
+The baseline does not blindly trust the model. It accepts model suggestions only when they fit the currently visible workflow state. This keeps the trajectory reproducible and avoids obvious mistakes such as trying to resolve an unassigned focus ticket.
+
+### Deterministic Safe-Policy Scores
+
+The current deterministic safe policy achieves the following local scores over the published tasks:
+
+| Task | Mean Score |
 | :--- | ---: |
-| `easy` | `0.990` |
-| `medium` | `0.907` |
-| `hard` | `0.970` |
+| `easy` | `0.660` |
+| `medium` | `0.657` |
+| `hard` | `0.693` |
 
-These scores come from the current deterministic fallback path over the 3 published tasks.
+These are trajectory means over the current reward function and provide a stable local reference point for debugging and regression checks.
 
----
+## Example Trajectory
 
-## 🚀 API Endpoints
+For the `hard` task, a strong short trajectory is:
 
-The environment is exposed via FastAPI:
+1. `assign_ticket` on the high-priority blocking incident
+2. `resolve_ticket` on the blocker
+3. `resolve_ticket` on the now-unblocked dependent ticket
 
-- `POST /reset`  
-- `POST /step`  
-- `GET /state`  
+This sequence clears the dependency chain without wasting steps and yields a strong score.
 
----
+## Running Locally
 
-## 🐳 Running Locally
+### Docker
 
 ```bash
 docker build -t jira-env .
 docker run -p 7860:7860 jira-env
 ```
 
-Set inference environment variables before running the baseline:
+### Direct Python
 
-```bash
-export API_BASE_URL=https://router.huggingface.co/v1
-export MODEL_NAME=gpt-4o-mini
-export HF_TOKEN=your_token_here
-python inference.py
+```powershell
+python server.py
 ```
 
-On Windows PowerShell:
+### Baseline Inference
+
+Windows PowerShell:
 
 ```powershell
 $env:API_BASE_URL="https://router.huggingface.co/v1"
 $env:MODEL_NAME="gpt-4o-mini"
 $env:HF_TOKEN="your_token_here"
+$env:ENV_BASE_URL="http://127.0.0.1:7860"
 python inference.py
 ```
 
-Local validation:
+POSIX shell:
+
+```bash
+export API_BASE_URL=https://router.huggingface.co/v1
+export MODEL_NAME=gpt-4o-mini
+export HF_TOKEN=your_token_here
+export ENV_BASE_URL=http://127.0.0.1:7860
+python inference.py
+```
+
+## Validation and Development Notes
+
+- `openenv.yaml` declares the benchmark metadata and task list
+- `tasks/definitions.py` defines the published task scenarios
+- `tasks/graders.py` contains the reward shaping logic
+- `server/jira_environment.py` contains the stateful Jira workflow simulation
+- `server/app.py` exposes the HTTP app used by Docker and Hugging Face Spaces
+
+To run a local validation pass:
 
 ```bash
 openenv validate

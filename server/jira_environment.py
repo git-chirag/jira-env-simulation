@@ -30,6 +30,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
     _http_step_idx: int = 0
     _http_done: bool = False
     _http_rewards: List[float] = []
+    _http_action_history: List[str] = []
     _http_task_def: Any = None
     _http_tickets: List[Ticket] = []
     _http_dependencies: dict[int, list[int]] = {}
@@ -39,6 +40,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._step_idx: int = 0
         self._done: bool = False
         self._rewards: List[float] = []
+        self._action_history: List[str] = []
         self._task_def: Any = None
         self._tickets: List[Ticket] = []
         self._dependencies: dict[int, list[int]] = {}
@@ -55,6 +57,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._step_idx = 0
         self._done = False
         self._rewards = []
+        self._action_history = []
         self._dependencies = {ticket_id: deps[:] for ticket_id, deps in self._task_def.get("dependencies", {}).items()}
         self._tickets = [
             Ticket(
@@ -101,9 +104,11 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         target_ticket = self._select_focus_ticket()
         context = self._build_transition_context(normalized_action, target_ticket)
         self._apply_action(normalized_action, target_ticket, context)
+        self._finalize_transition_context(normalized_action, context)
         reward = grade_action(self._task_id, normalized_action, context)
         reward = max(0.01, min(reward, 0.99))
         self._rewards.append(reward)
+        self._action_history.append(normalized_action)
         self._done = self._all_resolved() or self._step_idx >= len(self._task_def["steps"])
         self._persist_http_state()
 
@@ -140,6 +145,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         JiraTaskEnvironment._http_step_idx = self._step_idx
         JiraTaskEnvironment._http_done = self._done
         JiraTaskEnvironment._http_rewards = list(self._rewards)
+        JiraTaskEnvironment._http_action_history = list(self._action_history)
         JiraTaskEnvironment._http_task_def = self._task_def
         JiraTaskEnvironment._http_dependencies = {
             ticket_id: deps[:] for ticket_id, deps in self._dependencies.items()
@@ -162,6 +168,7 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._step_idx = JiraTaskEnvironment._http_step_idx
         self._done = JiraTaskEnvironment._http_done
         self._rewards = list(JiraTaskEnvironment._http_rewards)
+        self._action_history = list(JiraTaskEnvironment._http_action_history)
         self._task_def = JiraTaskEnvironment._http_task_def
         self._dependencies = {
             ticket_id: deps[:] for ticket_id, deps in JiraTaskEnvironment._http_dependencies.items()
@@ -254,14 +261,22 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             "add_comment",
         }
         blocked = self._is_blocked(target_ticket) if target_ticket else False
+        unresolved_before = sum(1 for ticket in self._tickets if ticket.status != "resolved")
         return {
+            "task_id": self._task_id,
+            "step_idx": self._step_idx,
             "action_valid": action_valid,
             "target_exists": target_ticket is not None,
             "invalid_action": not action_valid,
             "blocked": blocked,
+            "previous_action": self._action_history[-1] if self._action_history else None,
+            "repeated_action": bool(self._action_history and self._action_history[-1] == action),
             "priority_before": target_ticket.priority if target_ticket else None,
             "status_before": target_ticket.status if target_ticket else None,
             "assigned_before": bool(target_ticket.assigned_to) if target_ticket else False,
+            "unresolved_before": unresolved_before,
+            "higher_priority_ready_before": self._has_higher_priority_ready_ticket(target_ticket),
+            "sla_risk": self._is_sla_risk(target_ticket),
             "assigned_now": False,
             "status_updated": False,
             "resolved_now": False,
@@ -270,7 +285,34 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             "within_sla": False,
             "dependency_cleared_now": False,
             "action_success": False,
+            "comment_useful": False,
+            "priority_change_useful": False,
+            "productive_action": False,
+            "no_progress": False,
+            "repeated_no_progress": False,
+            "all_resolved_after": False,
+            "unresolved_after": unresolved_before,
         }
+
+    def _finalize_transition_context(self, action: str, context: dict[str, Any]) -> None:
+        unresolved_after = sum(1 for ticket in self._tickets if ticket.status != "resolved")
+        context["unresolved_after"] = unresolved_after
+        context["all_resolved_after"] = unresolved_after == 0
+        context["comment_useful"] = bool(
+            context["comment_added"] and (context["blocked"] or context["sla_risk"])
+        )
+        context["priority_change_useful"] = bool(
+            context["priority_changed"] and context["sla_risk"] and context["priority_before"] != "high"
+        )
+        context["productive_action"] = bool(
+            context["assigned_now"]
+            or context["status_updated"]
+            or context["resolved_now"]
+            or context["priority_change_useful"]
+            or context["comment_useful"]
+        )
+        context["no_progress"] = not context["productive_action"]
+        context["repeated_no_progress"] = bool(context["repeated_action"] and context["no_progress"])
 
     def _apply_action(self, action: str, target_ticket: Optional[Ticket], context: dict[str, Any]) -> None:
         if target_ticket is None or not context["action_valid"]:
@@ -330,6 +372,25 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
 
     def _all_resolved(self) -> bool:
         return all(ticket.status == "resolved" for ticket in self._tickets)
+
+    def _has_higher_priority_ready_ticket(self, ticket: Optional[Ticket]) -> bool:
+        if ticket is None:
+            return False
+        priority_rank = {"high": 0, "medium": 1, "low": 2}
+        ticket_rank = priority_rank.get(ticket.priority, 3)
+        for candidate in self._tickets:
+            if candidate.id == ticket.id or candidate.status == "resolved" or self._is_blocked(candidate):
+                continue
+            if priority_rank.get(candidate.priority, 3) < ticket_rank:
+                return True
+        return False
+
+    def _is_sla_risk(self, ticket: Optional[Ticket]) -> bool:
+        if ticket is None or ticket.status == "resolved":
+            return False
+        threshold = self._sla_thresholds.get(ticket.priority, 5)
+        age = self._step_idx - ticket.created_step
+        return age >= max(1, threshold - 1)
 
     def _resolved_within_sla(self, ticket: Ticket) -> bool:
         threshold = self._sla_thresholds.get(ticket.priority, 5)
