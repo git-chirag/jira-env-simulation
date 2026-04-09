@@ -3,10 +3,12 @@ from typing import Any, List, Optional
 from openenv.core.env_server import Environment
 
 try:
+    from ..local_models import Ticket
     from ..models import JiraTaskAction, JiraTaskObservation, JiraTaskState
     from ..tasks.definitions import TASKS, TASK_NAMES
     from ..tasks.graders import grade_action
 except ImportError:
+    from local_models import Ticket
     from models import JiraTaskAction, JiraTaskObservation, JiraTaskState
     from tasks.definitions import TASKS, TASK_NAMES
     from tasks.graders import grade_action
@@ -21,6 +23,9 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._done: bool = False
         self._rewards: List[float] = []
         self._task_def: Any = None
+        self._tickets: List[Ticket] = []
+        self._dependencies: dict[int, list[int]] = {}
+        self._sla_thresholds = {"high": 3, "medium": 5, "low": 7}
 
     def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, **kwargs: Any) -> JiraTaskObservation:
         """Reset the environment to the start of a task."""
@@ -33,10 +38,22 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._step_idx = 0
         self._done = False
         self._rewards = []
+        self._dependencies = {ticket_id: deps[:] for ticket_id, deps in self._task_def.get("dependencies", {}).items()}
+        self._tickets = [
+            Ticket(
+                id=ticket_data["id"],
+                title=ticket_data["title"],
+                priority=ticket_data["priority"],
+                status=ticket_data["status"],
+                assigned_to=ticket_data.get("assigned_to"),
+                comments=list(ticket_data.get("comments", [])),
+                created_step=0,
+            )
+            for ticket_data in self._task_def.get("initial_tickets", [])
+        ]
 
-        first_step = self._task_def["steps"][0]
         return JiraTaskObservation(
-            text=first_step["observation"],
+            text=self._build_observation(),
             task_id=self._task_id
         )
 
@@ -47,25 +64,25 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         if self._done:
             raise RuntimeError("Episode is finished")
 
-        step_data = self._task_def["steps"][self._step_idx]
-        reward = grade_action(self._task_id, action.action, step_data["signals"])
+        self._step_idx += 1
+        normalized_action = (action.action or "").strip().lower()
+        target_ticket = self._select_focus_ticket()
+        context = self._build_transition_context(normalized_action, target_ticket)
+        self._apply_action(normalized_action, target_ticket, context)
+        reward = grade_action(self._task_id, normalized_action, context)
         reward = max(0.01, min(reward, 0.99))
         self._rewards.append(reward)
-        self._step_idx += 1
-        self._done = self._step_idx >= len(self._task_def["steps"])
-
-        next_obs_text = ""
-        if not self._done:
-            next_obs_text = self._task_def["steps"][self._step_idx]["observation"]
+        self._done = self._all_resolved() or self._step_idx >= len(self._task_def["steps"])
 
         info = {
             "step": self._step_idx,
             "task_id": self._task_id,
-            "rewards_so_far": self._rewards
+            "rewards_so_far": self._rewards,
+            "resolved_tickets": sum(1 for ticket in self._tickets if ticket.status == "resolved"),
         }
 
         return JiraTaskObservation(
-            text=next_obs_text,
+            text="" if self._done else self._build_observation(),
             task_id=self._task_id,
             reward=reward,
             done=self._done,
@@ -82,3 +99,173 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             history=[str(r) for r in self._rewards],
             done=self._done
         )
+
+    def _build_observation(self) -> str:
+        focus_ticket = self._select_focus_ticket()
+        lines = [
+            "Jira Simulation Report:",
+            f"Task: {self._task_id}",
+            f"Current step: {self._step_idx + 1}/{len(self._task_def['steps'])}",
+            self._task_def["description"],
+            "",
+            "Ticket summary:",
+        ]
+
+        for ticket in sorted(self._tickets, key=lambda item: item.id):
+            if ticket.status == "resolved":
+                state_line = f"Ticket #{ticket.id} '{ticket.title}' is {ticket.priority} priority and already resolved."
+            elif self._is_blocked(ticket):
+                blocking = ", ".join(f"#{dep}" for dep in self._dependencies.get(ticket.id, []))
+                state_line = (
+                    f"Ticket #{ticket.id} '{ticket.title}' is {ticket.priority} priority, assigned to {ticket.assigned_to}, "
+                    f"but blocked until ticket(s) {blocking} are resolved."
+                )
+            elif not ticket.assigned_to:
+                state_line = (
+                    f"Ticket #{ticket.id} '{ticket.title}' is {ticket.priority} priority, {ticket.status}, and currently unassigned."
+                )
+            else:
+                state_line = (
+                    f"Ticket #{ticket.id} '{ticket.title}' is {ticket.priority} priority, assigned to {ticket.assigned_to}, "
+                    f"status {ticket.status}, and ready to resolve."
+                )
+            lines.append(state_line)
+
+        if focus_ticket is None:
+            lines.append("")
+            lines.append("All tickets are resolved.")
+        elif self._is_blocked(focus_ticket):
+            dependency_list = ", ".join(f"#{dep}" for dep in self._dependencies.get(focus_ticket.id, []))
+            lines.append("")
+            lines.append(
+                f"Current focus: Ticket #{focus_ticket.id} remains blocked until dependency ticket(s) {dependency_list} are resolved."
+            )
+        elif not focus_ticket.assigned_to:
+            lines.append("")
+            lines.append(
+                f"Current focus: Ticket #{focus_ticket.id} is the most urgent open item and is currently unassigned."
+            )
+            lines.append("The best next move starts progress on the current focus ticket.")
+        else:
+            lines.append("")
+            lines.append(
+                f"Current focus: Ticket #{focus_ticket.id} is assigned and ready to close."
+            )
+            lines.append("The next move should complete the work cleanly.")
+
+        lines.append("Choose one action type: assign_ticket, resolve_ticket, add_comment, update_status, or change_priority.")
+        return "\n".join(lines)
+
+    def _select_focus_ticket(self) -> Optional[Ticket]:
+        unresolved = [ticket for ticket in self._tickets if ticket.status != "resolved"]
+        if not unresolved:
+            return None
+
+        priority_rank = {"high": 0, "medium": 1, "low": 2}
+        ready = [ticket for ticket in unresolved if not self._is_blocked(ticket)]
+        candidates = ready if ready else unresolved
+        return sorted(candidates, key=lambda ticket: (priority_rank.get(ticket.priority, 3), ticket.id))[0]
+
+    def _build_transition_context(self, action: str, target_ticket: Optional[Ticket]) -> dict[str, Any]:
+        action_valid = action in {
+            "assign_ticket",
+            "resolve_ticket",
+            "update_status",
+            "change_priority",
+            "add_comment",
+        }
+        blocked = self._is_blocked(target_ticket) if target_ticket else False
+        return {
+            "action_valid": action_valid,
+            "target_exists": target_ticket is not None,
+            "invalid_action": not action_valid,
+            "blocked": blocked,
+            "priority_before": target_ticket.priority if target_ticket else None,
+            "status_before": target_ticket.status if target_ticket else None,
+            "assigned_before": bool(target_ticket.assigned_to) if target_ticket else False,
+            "assigned_now": False,
+            "status_updated": False,
+            "resolved_now": False,
+            "priority_changed": False,
+            "comment_added": False,
+            "within_sla": False,
+            "dependency_cleared_now": False,
+            "action_success": False,
+        }
+
+    def _apply_action(self, action: str, target_ticket: Optional[Ticket], context: dict[str, Any]) -> None:
+        if target_ticket is None or not context["action_valid"]:
+            return
+
+        if action == "assign_ticket":
+            if not target_ticket.assigned_to:
+                target_ticket.assigned_to = "agent"
+                if target_ticket.status == "open":
+                    target_ticket.status = "in_progress"
+                context["assigned_now"] = True
+                context["action_success"] = True
+            return
+
+        if action == "resolve_ticket":
+            if target_ticket.status != "resolved" and target_ticket.assigned_to and not context["blocked"]:
+                target_ticket.status = "resolved"
+                context["resolved_now"] = True
+                context["within_sla"] = self._resolved_within_sla(target_ticket)
+                context["dependency_cleared_now"] = self._clears_dependency(target_ticket.id)
+                context["action_success"] = True
+            return
+
+        if action == "update_status":
+            if target_ticket.status not in {"in_progress", "resolved"}:
+                target_ticket.status = "in_progress"
+                context["status_updated"] = True
+                context["action_success"] = True
+            return
+
+        if action == "change_priority":
+            new_priority = self._next_priority(target_ticket.priority)
+            if new_priority != target_ticket.priority:
+                target_ticket.priority = new_priority
+                context["priority_changed"] = True
+                context["action_success"] = True
+            return
+
+        if action == "add_comment":
+            target_ticket.comments.append(f"Step {self._step_idx}: investigating")
+            context["comment_added"] = True
+            context["action_success"] = True
+
+    def _is_blocked(self, ticket: Optional[Ticket]) -> bool:
+        if ticket is None:
+            return False
+        dependencies = self._dependencies.get(ticket.id, [])
+        if not dependencies:
+            return False
+        return any(self._ticket_status(dep_id) != "resolved" for dep_id in dependencies)
+
+    def _ticket_status(self, ticket_id: int) -> str:
+        for ticket in self._tickets:
+            if ticket.id == ticket_id:
+                return ticket.status
+        return "resolved"
+
+    def _all_resolved(self) -> bool:
+        return all(ticket.status == "resolved" for ticket in self._tickets)
+
+    def _resolved_within_sla(self, ticket: Ticket) -> bool:
+        threshold = self._sla_thresholds.get(ticket.priority, 5)
+        age = self._step_idx - ticket.created_step
+        return age <= threshold
+
+    def _clears_dependency(self, ticket_id: int) -> bool:
+        for dependency_ids in self._dependencies.values():
+            if ticket_id in dependency_ids:
+                return True
+        return False
+
+    def _next_priority(self, priority: str) -> str:
+        if priority == "low":
+            return "medium"
+        if priority == "medium":
+            return "high"
+        return "high"

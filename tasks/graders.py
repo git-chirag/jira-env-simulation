@@ -1,5 +1,5 @@
 # tasks/graders.py
-# Reward functions for each task. All rewards are strictly in (0.0, 1.0).
+# Reward functions for the Jira environment. All rewards are strictly in (0.0, 1.0).
 
 __all__ = [
     "grade_action",
@@ -10,9 +10,9 @@ __all__ = [
 ]
 
 
-def grade_action(task_id: str, action: str, signals: dict) -> float:
+def grade_action(task_id: str, action: str, state: dict) -> float:
     """
-    Score a single action for a given task and signal state.
+    Score a single action for a given task and state transition context.
     Returns a float in (0.0, 1.0).
     """
     action = (action or "").lower().strip()
@@ -34,77 +34,65 @@ def grade_action(task_id: str, action: str, signals: dict) -> float:
 
     raw_score = 0.50
     if task_id == "easy":
-        raw_score = grade_easy(action, signals)
+        raw_score = grade_easy(action, state)
     elif task_id == "medium":
-        raw_score = grade_medium(action, signals)
+        raw_score = grade_medium(action, state)
     elif task_id == "hard":
-        raw_score = grade_hard(action, signals)
+        raw_score = grade_hard(action, state)
     return round(min(max(raw_score, 0.01), 0.99), 3)
 
 
-def grade_easy(action: str, signals: dict) -> float:
-    if not signals.get("assigned", False):
-        if action == "assign_ticket":
-            return 0.99
-        if action == "resolve_ticket":
-            return 0.20
-        if action == "add_comment":
-            return 0.12
-        return 0.08
-
-    if action == "resolve_ticket":
-        return 0.99
-    if action == "update_status":
-        return 0.30
-    if action == "add_comment":
-        return 0.12
-    return 0.08
+def grade_easy(action: str, state: dict) -> float:
+    return _grade_common(action, state, task_bonus=0.02)
 
 
-def grade_medium(action: str, signals: dict) -> float:
-    priority = signals.get("priority", "medium")
-    assigned = signals.get("assigned", False)
-
-    if not assigned:
-        if action == "assign_ticket":
-            return 0.95 if priority == "high" else 0.85
-        if action == "resolve_ticket":
-            return 0.18
-        if action == "add_comment":
-            return 0.15
-        return 0.10
-
-    if action == "resolve_ticket":
-        return 0.92 if priority == "high" else 0.82
-    if action == "update_status":
-        return 0.35
-    if action == "add_comment":
-        return 0.18
-    return 0.10
+def grade_medium(action: str, state: dict) -> float:
+    return _grade_common(action, state, task_bonus=0.00)
 
 
-def grade_hard(action: str, signals: dict) -> float:
-    priority = signals.get("priority", "medium")
-    assigned = signals.get("assigned", False)
+def grade_hard(action: str, state: dict) -> float:
+    bonus = 0.03 if state.get("dependency_cleared_now") else -0.02 if state.get("blocked") else 0.0
+    if state.get("priority_before") == "high" and state.get("action_success"):
+        bonus += 0.02
+    return _grade_common(action, state, task_bonus=bonus)
 
-    if not assigned:
-        if action == "assign_ticket":
-            return 0.97 if priority == "high" else 0.70
-        if action == "resolve_ticket":
-            return 0.10
-        if action == "add_comment":
-            return 0.08
-        if action == "change_priority":
-            return 0.05
-        return 0.06
 
-    if action == "resolve_ticket":
-        return 0.97 if priority == "high" else 0.80
-    if action == "update_status":
-        return 0.28
-    if action == "add_comment":
-        return 0.08
-    return 0.05
+def _grade_common(action: str, state: dict, task_bonus: float) -> float:
+    reward = -0.05
+
+    if not state.get("target_exists", False):
+        return 0.01
+
+    if not state.get("action_valid", True):
+        return 0.01
+
+    if state.get("blocked", False) and action == "resolve_ticket":
+        return 0.01
+
+    if state.get("invalid_action", False):
+        reward += -1.0
+    elif action == "assign_ticket":
+        reward += 0.2 if state.get("assigned_now") else -0.1
+    elif action == "update_status":
+        reward += 0.1 if state.get("status_updated") else -0.1
+    elif action == "resolve_ticket":
+        if state.get("resolved_now"):
+            priority = state.get("priority_before", "low")
+            reward += {
+                "high": 1.0,
+                "medium": 0.7,
+                "low": 0.4,
+            }.get(priority, 0.4)
+            reward += 0.1 if state.get("within_sla") else -0.3
+        else:
+            reward += -0.5
+    elif action == "change_priority":
+        reward += 0.05 if state.get("priority_changed") else -0.1
+    elif action == "add_comment":
+        reward += 0.05 if state.get("comment_added") else -0.1
+
+    reward += task_bonus
+    return reward
 
 
 TASK_GRADERS = {
