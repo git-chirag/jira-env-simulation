@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
 try:
@@ -13,11 +13,11 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
-    from ..models import JiraTaskAction, JiraTaskObservation, JiraTaskState
+    from ..models import JiraStepRequest, JiraTaskAction, JiraTaskObservation, JiraTaskState
     from ..tasks.definitions import TASKS
     from .jira_environment import JiraTaskEnvironment
 except (ModuleNotFoundError, ImportError):
-    from models import JiraTaskAction, JiraTaskObservation, JiraTaskState
+    from models import JiraStepRequest, JiraTaskAction, JiraTaskObservation, JiraTaskState
     from tasks.definitions import TASKS
     from server.jira_environment import JiraTaskEnvironment
 
@@ -317,17 +317,9 @@ def get_state() -> JiraTaskState:
 
 
 @router.post("/step")
-def step(payload: dict[str, Any]) -> dict[str, Any]:
-    action_payload = payload.get("action")
-    if not isinstance(action_payload, dict):
-        raise HTTPException(status_code=422, detail="Expected payload shape: {'action': {'action': '<action_name>'}}")
-
-    action_name = action_payload.get("action")
-    if not isinstance(action_name, str):
-        raise HTTPException(status_code=422, detail="Missing action.action string")
-
+def step(payload: JiraStepRequest) -> dict[str, Any]:
     env = JiraTaskEnvironment()
-    result = env.step(JiraTaskAction(action=action_name))
+    result = env.step(payload.action)
     return {
         "observation": {
             "text": result.text,
