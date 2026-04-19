@@ -234,8 +234,8 @@ The current deterministic safe policy achieves the following local scores over t
 | Task | Latest Local Baseline |
 | :--- | ---: |
 | `easy` | `0.650` |
-| `medium` | `0.461` |
-| `hard` | `0.394` |
+| `medium` | `0.469` |
+| `hard` | `0.399` |
 
 These are trajectory means over the current reward function and provide a stable local reference point for debugging and regression checks.
 

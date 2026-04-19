@@ -49,8 +49,8 @@ def _render_task_cards() -> str:
     cards: list[str] = []
     reference_scores = {
         "easy": "0.650",
-        "medium": "0.461",
-        "hard": "0.394",
+        "medium": "0.469",
+        "hard": "0.399",
     }
     for task_id, definition in TASKS.items():
         cards.append(
