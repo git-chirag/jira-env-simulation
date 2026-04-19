@@ -46,7 +46,7 @@ def grade_action(task_id: str, action: str, transition: dict) -> float:
                 action = candidate
                 break
         else:
-            return 0.08
+            return 0.01
 
     raw_score = 0.12
     if task_id == "easy":
@@ -120,11 +120,21 @@ def _grade_common(action: str, transition: dict, task_bonus: float) -> float:
         else:
             reward = 0.02
     elif action == "change_priority":
-        reward = 0.18 if transition.get("priority_change_useful") else 0.05
+        if transition.get("priority_change_useful") and transition.get("priority_change_first_time"):
+            reward = 0.12
+        elif transition.get("priority_change_useful"):
+            reward = 0.04
+        else:
+            reward = 0.02
     elif action == "add_comment":
-        reward = 0.16 if transition.get("comment_useful") else 0.07
+        if transition.get("comment_useful") and transition.get("comment_first_time"):
+            reward = 0.10
+        elif transition.get("comment_useful"):
+            reward = 0.04
+        else:
+            reward = 0.02
     else:
-        reward = 0.03
+        reward = 0.01
 
     if transition.get("repeated_action"):
         reward -= 0.05
@@ -134,6 +144,10 @@ def _grade_common(action: str, transition: dict, task_bonus: float) -> float:
         reward -= 0.06
     if transition.get("higher_priority_ready_before") and action != "assign_ticket":
         reward -= 0.07
+    if transition.get("episode_completed"):
+        reward += 0.06
+    elif transition.get("episode_truncated"):
+        reward -= 0.10
 
     reward += task_bonus
     return reward

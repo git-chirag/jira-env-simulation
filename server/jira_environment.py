@@ -33,6 +33,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
     _http_done: bool = False
     _http_rewards: List[float] = []
     _http_action_history: List[str] = []
+    _http_commented_ticket_ids: List[int] = []
+    _http_reprioritized_ticket_ids: List[int] = []
     _http_task_def: Any = None
     _http_tickets: List[Ticket] = []
     _http_dependencies: dict[int, list[int]] = {}
@@ -43,6 +45,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._done: bool = False
         self._rewards: List[float] = []
         self._action_history: List[str] = []
+        self._commented_ticket_ids: set[int] = set()
+        self._reprioritized_ticket_ids: set[int] = set()
         self._task_def: Any = None
         self._tickets: List[Ticket] = []
         self._dependencies: dict[int, list[int]] = {}
@@ -59,6 +63,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._done = False
         self._rewards = []
         self._action_history = []
+        self._commented_ticket_ids = set()
+        self._reprioritized_ticket_ids = set()
         self._dependencies = {ticket_id: deps[:] for ticket_id, deps in self._task_def.get("dependencies", {}).items()}
         self._tickets = [self._ticket_from_dict(ticket_data) for ticket_data in self._task_def.get("initial_tickets", [])]
         self._persist_http_state()
@@ -146,6 +152,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         JiraTaskEnvironment._http_done = self._done
         JiraTaskEnvironment._http_rewards = list(self._rewards)
         JiraTaskEnvironment._http_action_history = list(self._action_history)
+        JiraTaskEnvironment._http_commented_ticket_ids = sorted(self._commented_ticket_ids)
+        JiraTaskEnvironment._http_reprioritized_ticket_ids = sorted(self._reprioritized_ticket_ids)
         JiraTaskEnvironment._http_task_def = self._task_def
         JiraTaskEnvironment._http_dependencies = {
             ticket_id: deps[:] for ticket_id, deps in self._dependencies.items()
@@ -158,6 +166,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         self._done = JiraTaskEnvironment._http_done
         self._rewards = list(JiraTaskEnvironment._http_rewards)
         self._action_history = list(JiraTaskEnvironment._http_action_history)
+        self._commented_ticket_ids = set(JiraTaskEnvironment._http_commented_ticket_ids)
+        self._reprioritized_ticket_ids = set(JiraTaskEnvironment._http_reprioritized_ticket_ids)
         self._task_def = JiraTaskEnvironment._http_task_def
         self._dependencies = {
             ticket_id: deps[:] for ticket_id, deps in JiraTaskEnvironment._http_dependencies.items()
@@ -295,6 +305,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             "resolved_now": False,
             "priority_changed": False,
             "comment_added": False,
+            "priority_change_first_time": False,
+            "comment_first_time": False,
             "within_sla": False,
             "dependency_cleared_now": False,
             "action_success": False,
@@ -304,6 +316,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
             "no_progress": False,
             "repeated_no_progress": False,
             "all_resolved_after": False,
+            "episode_completed": False,
+            "episode_truncated": False,
             "unresolved_after": unresolved_before,
         }
 
@@ -313,6 +327,8 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         unresolved_after = sum(1 for ticket in self._tickets if ticket.status != "resolved")
         context["unresolved_after"] = unresolved_after
         context["all_resolved_after"] = unresolved_after == 0
+        context["episode_completed"] = context["all_resolved_after"]
+        context["episode_truncated"] = unresolved_after > 0 and self._step_idx >= len(self._task_def["steps"])
         context["comment_useful"] = bool(
             context["comment_added"] and (context["blocked"] or context["sla_risk"])
         )
@@ -364,13 +380,17 @@ class JiraTaskEnvironment(Environment[JiraTaskAction, JiraTaskObservation, JiraT
         if action == "change_priority":
             new_priority = self._next_priority(target_ticket.priority)
             if new_priority != target_ticket.priority:
+                context["priority_change_first_time"] = target_ticket.id not in self._reprioritized_ticket_ids
                 target_ticket.priority = new_priority
+                self._reprioritized_ticket_ids.add(target_ticket.id)
                 context["priority_changed"] = True
                 context["action_success"] = True
             return
 
         if action == "add_comment":
+            context["comment_first_time"] = target_ticket.id not in self._commented_ticket_ids
             target_ticket.comments.append(f"Step {self._step_idx}: investigating")
+            self._commented_ticket_ids.add(target_ticket.id)
             context["comment_added"] = True
             context["action_success"] = True
 
